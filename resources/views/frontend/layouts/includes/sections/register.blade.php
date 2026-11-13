@@ -20,10 +20,10 @@
                 <input class="input-block-level" id="root-username" name="username" type="text" placeholder="Root Username" value="{{ request('username') }}" />
             </div>
 
-            <div class="col_half nobottommargin col_last">
-                <label for="root-password">Root Password</label>
-                <input class="input-block-level" id="root-password" name="password" type="password" placeholder="Root Password" value="{{ request('password') }}" />
-            </div>
+{{--            <div class="col_half nobottommargin col_last">--}}
+{{--                <label for="root-password">Root Password</label>--}}
+{{--                <input class="input-block-level" id="root-password" name="password" type="password" placeholder="Root Password" value="{{ request('password') }}" />--}}
+{{--            </div>--}}
 
             <div class="clear"></div>
 
