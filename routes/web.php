@@ -39,23 +39,20 @@ Route::post('/servers/new', function (Request $request) {
 
     $ip = $validated['ip'];
     $serverId = (string) Str::uuid();
-
     $enrollmentToken = Str::random(64);
 
-    // 1. Create a private directory for this server
+    // Create private directory
     $directory = storage_path(
         "app/private/zeitops/servers/{$serverId}"
     );
 
-    if (!is_dir($directory)) {
-        if (!mkdir($directory, 0700, true)) {
-            abort(500, 'Could not create SSH key directory.');
-        }
+    if (!is_dir($directory) && !mkdir($directory, 0700, true)) {
+        abort(500, 'Could not create SSH key directory.');
     }
 
     chmod($directory, 0700);
 
-    // 2. Generate a unique Ed25519 SSH key pair
+    // Generate unique Ed25519 key pair
     $privateKeyPath = $directory . '/id_ed25519';
     $publicKeyPath = $privateKeyPath . '.pub';
 
@@ -70,21 +67,16 @@ Route::post('/servers/new', function (Request $request) {
 
     $process->mustRun();
 
-    // 3. Secure private key permissions
     chmod($privateKeyPath, 0600);
     chmod($publicKeyPath, 0600);
 
-    // 4. Read the generated public key
-    $publicKey = trim(
-        file_get_contents($publicKeyPath)
-    );
-
-    // 5. Encode public key for the shell command
+    // Read and encode public key
+    $publicKey = trim(file_get_contents($publicKeyPath));
     $publicKeyBase64 = base64_encode($publicKey);
 
-    // 6. Generate one-line enrollment command
+    // Generate short, single-line enrollment command
     $template = <<<'BASH'
-sudo bash -c 'set -e; id -u zeitops >/dev/null 2>&1 || useradd -m -s /bin/bash zeitops; h=$(getent passwd zeitops | cut -d: -f6); test -n "$h" && test -d "$h" || exit 1; g=$(id -gn zeitops); install -d -m 700 -o zeitops -g "$g" "$h/.ssh"; f="$h/.ssh/authorized_keys"; touch "$f"; chown "zeitops:$g" "$f"; chmod 600 "$f"; k=$(printf %s __PUBLIC_KEY_B64__ | base64 -d); grep -qxF "$k" "$f" || printf "%s\n" "$k" >> "$f"; echo "ZeitOps enrollment completed successfully"'
+sudo bash -c 'set -e; id zeitops >/dev/null 2>&1 || useradd -m -s /bin/bash zeitops; h=$(getent passwd zeitops | cut -d: -f6); test -n "$h" && test -d "$h"; g=$(id -gn zeitops); install -d -m 700 -o zeitops -g "$g" "$h/.ssh"; f="$h/.ssh/authorized_keys"; touch "$f"; k=$(echo __PUBLIC_KEY_B64__ | base64 -d); grep -qxF "$k" "$f" || printf "%s\n" "$k" >> "$f"; chown "zeitops:$g" "$f"; chmod 600 "$f"; echo "ZeitOps installed successfully"'
 BASH;
 
     $command = str_replace(
@@ -93,27 +85,33 @@ BASH;
         $template
     );
 
-    // 7. Save server metadata for Check Access
+    // Save server metadata
     $metadata = [
         'id' => $serverId,
-        'ip' => $validated['ip'],
+        'ip' => $ip,
         'port' => (int) $validated['port'],
         'username' => 'zeitops',
         'type' => $validated['type'],
         'private_key_path' => $privateKeyPath,
+        'host_fingerprint' => null,
         'status' => 'pending',
         'created_at' => now()->toIso8601String(),
         'enrollment_token_hash' => hash('sha256', $enrollmentToken),
     ];
 
+    $metadataPath = $directory . '/server.json';
+
     file_put_contents(
-        $directory . '/server.json',
-        json_encode($metadata, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)
+        $metadataPath,
+        json_encode(
+            $metadata,
+            JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR
+        )
     );
 
-    chmod($directory . '/server.json', 0600);
+    chmod($metadataPath, 0600);
 
-    // 8. Display the generated command
+    // Display generated command
     return view('test.new_server', compact(
         'validated',
         'command',
@@ -122,7 +120,7 @@ BASH;
         'enrollmentToken'
     ));
 
-})->name('servers.store');
+})->middleware('throttle:5,1')->name('servers.store');
 
 Route::get('/servers/check/{serverId}', function (Request $request, string $serverId) {
 
