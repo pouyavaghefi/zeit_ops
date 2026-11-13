@@ -144,6 +144,12 @@ Route::get('/servers/check/{serverId}', function (Request $request, string $serv
         JSON_THROW_ON_ERROR
     );
 
+    \Log::info('ZeitOps fingerprint debugging', [
+        'server_id' => $serverId,
+        'metadata_path' => $metadataPath,
+        'host_fingerprint' => $server['host_fingerprint'] ?? null,
+    ]);
+
     // 3. Verify enrollment token
     $providedToken = $request->header('X-Enrollment-Token', '');
 
