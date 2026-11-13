@@ -49,7 +49,10 @@
             <hr>
             <h4>Generated Command:</h4>
             <pre>{{ $command }}</pre>
-            <a href="/servers/new/{{ $ip }}" class="btn btn-default">Check Access</a>
+            <a href="{{ route('servers.check', ['serverId' => $serverId]) }}"
+               class="btn btn-primary">
+                Check Access
+            </a>
         @endisset
     </div>
 @endsection
