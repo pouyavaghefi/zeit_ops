@@ -49,10 +49,50 @@
             <hr>
             <h4>Generated Command:</h4>
             <pre>{{ $command }}</pre>
-            <a href="{{ route('servers.check', ['serverId' => $serverId]) }}"
-               class="btn btn-primary">
+            <button type="button" id="check-access" class="btn btn-primary">
                 Check Access
-            </a>
+            </button>
+
+            <div id="check-result" class="mt-3"></div>
+
+            <script>
+                document.getElementById('check-access').addEventListener('click', async () => {
+                    const button = document.getElementById('check-access');
+                    const result = document.getElementById('check-result');
+
+                    button.disabled = true;
+                    result.className = 'mt-3';
+                    result.textContent = 'Checking server access...';
+
+                    try {
+                        const response = await fetch(
+                            @json(route('servers.check', ['serverId' => $serverId])),
+                            {
+                                method: 'GET',
+                                headers: {
+                                    'Accept': 'application/json',
+                                    'X-Enrollment-Token': @json($enrollmentToken)
+                                },
+                                credentials: 'same-origin'
+                            }
+                        );
+
+                        const data = await response.json();
+
+                        result.className = response.ok && data.success
+                            ? 'alert alert-success mt-3'
+                            : 'alert alert-danger mt-3';
+
+                        result.textContent = data.message || 'Connection check failed.';
+
+                    } catch (error) {
+                        result.className = 'alert alert-danger mt-3';
+                        result.textContent = 'Unable to check server access.';
+                    } finally {
+                        button.disabled = false;
+                    }
+                });
+            </script>
         @endisset
     </div>
 @endsection
