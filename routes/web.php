@@ -34,7 +34,7 @@ Route::post('/servers/new', function (Request $request) {
         'ip' => 'required|ip',
         'port' => 'required|integer|between:1,65535',
         'username' => 'required|string',
-        'password' => 'required',
+        'password' => 'nullable',
     ]);
 
     $ip = $validated['ip'];
