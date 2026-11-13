@@ -1,0 +1,70 @@
+/* ZeitOps Header */
+#header {
+    height: 110px !important;
+    min-height: 110px !important;
+}
+
+#header .container {
+    height: 110px !important;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+/* Logo */
+#header #logo {
+    display: flex;
+    align-items: center;
+    float: none !important;
+    height: 110px !important;
+    max-width: 280px;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+#header #logo a {
+    display: flex;
+    align-items: center;
+    height: auto;
+}
+
+#header #logo img.zeitops-logo {
+    display: block;
+    width: 260px !important;
+    max-width: 100%;
+    height: auto !important;
+    max-height: 85px !important;
+    object-fit: contain;
+}
+
+/* Navigation */
+#header #primary-menu {
+    float: none !important;
+    height: 110px;
+    display: flex;
+    align-items: center;
+    margin: 0;
+}
+
+/* Mobile */
+@media (max-width: 767px) {
+    #header,
+    #header .container {
+        height: 80px !important;
+        min-height: 80px !important;
+    }
+
+    #header #logo {
+        height: 80px !important;
+        max-width: 190px;
+    }
+
+    #header #logo img.zeitops-logo {
+        width: 180px !important;
+        max-height: 65px !important;
+    }
+
+    #header #primary-menu {
+        height: auto;
+    }
+}
