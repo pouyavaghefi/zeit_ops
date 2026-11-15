@@ -539,12 +539,11 @@
                     }
 
                 } catch (error) {
+                    console.error('ZeitOps frontend error:', error);
 
                     checkResult.className = 'zo-status error';
-
                     checkResult.textContent =
-                        'Connection check failed. Please try again.';
-
+                        'Frontend error: ' + error.message;
                 } finally {
 
                     checkButton.disabled = false;
