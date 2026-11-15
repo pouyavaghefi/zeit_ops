@@ -4,16 +4,24 @@
     @include('panel.layouts.head')
 </head>
 <body>
-<!-- Sidebar -->
+
+{{-- Sidebar --}}
 @include('panel.layouts.sidebar')
 
-<!-- Main Content -->
+{{-- Mobile overlay --}}
+<div
+    id="sidebar-overlay"
+    class="sidebar-overlay"
+    aria-hidden="true"
+></div>
+
+{{-- Main content --}}
 <div id="content">
-    <!-- Topbar -->
+
     @include('panel.layouts.topbar')
 
-    <!-- Dashboard Content -->
     @yield('wrapper')
+
 </div>
 
 @include('panel.layouts.scripts')

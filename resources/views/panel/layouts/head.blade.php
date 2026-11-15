@@ -8,6 +8,7 @@
 <!-- Google Fonts -->
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/panel/dashboard.css">
-<link rel="icon" type="image/png" href="/img/favicon.png">
+<link rel="stylesheet" href="/panel/own.css">
+<link rel="icon" type="image/png" href="/img/icon.png">
 
 

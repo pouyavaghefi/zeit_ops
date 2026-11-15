@@ -1,151 +1,273 @@
 @extends('panel.layouts.master')
 
 @section('wrapper')
+
     <div class="dashboard-content">
+
+        {{-- Welcome --}}
         <div class="welcome-card">
-            <h2>Welcome back, {{ auth()->user()->name }}!</h2>
-            <p>Your dashboard summary...</p>
+            <h2>
+                Welcome back, {{ auth()->user()->name }}!
+            </h2>
+
+            <p>
+                Manage your servers, monitor SSH connections,
+                and control your infrastructure with ZeitOps.
+            </p>
         </div>
 
+        {{-- Infrastructure Statistics --}}
         <div class="stats-cards">
+
+            {{-- Total Servers --}}
             <div class="stat-card">
-                <i class="fas fa-shopping-cart"></i>
-                <h3>1,254</h3>
-                <p>Total Orders</p>
+                <i class="fas fa-server"></i>
+
+                <h3>{{ number_format($stats['total']) }}</h3>
+
+                <p>Total Servers</p>
+
                 <div class="progress-text">
-                    <span>Growth</span>
-                    <span>+12%</span>
+                    <span>Registered infrastructure</span>
+                    <span>{{ $stats['total'] }}</span>
                 </div>
+
                 <div class="progress">
-                    <div class="progress-bar bg-primary" role="progressbar" style="width: 75%"></div>
+                    <div
+                        class="progress-bar bg-primary"
+                        style="width: {{ $stats['total'] > 0 ? 100 : 0 }}%"
+                    ></div>
                 </div>
             </div>
 
+            {{-- Successful Connections --}}
             <div class="stat-card">
-                <i class="fas fa-users"></i>
-                <h3>5,421</h3>
-                <p>Total Customers</p>
+                <i class="fas fa-check-circle"></i>
+
+                <h3>{{ number_format($stats['connected']) }}</h3>
+
+                <p>SSH Verified</p>
+
                 <div class="progress-text">
-                    <span>Growth</span>
-                    <span>+8%</span>
+                    <span>Last successful checks</span>
+                    <span>
+                    {{ $stats['total'] > 0
+                        ? round($stats['connected'] / $stats['total'] * 100)
+                        : 0 }}%
+                </span>
                 </div>
+
                 <div class="progress">
-                    <div class="progress-bar bg-success" role="progressbar" style="width: 60%"></div>
+                    <div
+                        class="progress-bar bg-success"
+                        style="width: {{ $stats['total'] > 0
+                        ? round($stats['connected'] / $stats['total'] * 100)
+                        : 0 }}%"
+                    ></div>
                 </div>
             </div>
 
+            {{-- Pending Servers --}}
             <div class="stat-card">
-                <i class="fas fa-dollar-sign"></i>
-                <h3>$24,569</h3>
-                <p>Total Revenue</p>
+                <i class="fas fa-clock"></i>
+
+                <h3>{{ number_format($stats['pending']) }}</h3>
+
+                <p>Pending Setup</p>
+
                 <div class="progress-text">
-                    <span>Growth</span>
-                    <span>+15%</span>
+                    <span>Awaiting completion</span>
+                    <span>{{ $stats['pending'] }}</span>
                 </div>
+
                 <div class="progress">
-                    <div class="progress-bar bg-warning" role="progressbar" style="width: 85%"></div>
+                    <div
+                        class="progress-bar bg-warning"
+                        style="width: {{ $stats['total'] > 0
+                        ? round($stats['pending'] / $stats['total'] * 100)
+                        : 0 }}%"
+                    ></div>
                 </div>
             </div>
 
+            {{-- Failed Servers --}}
             <div class="stat-card">
-                <i class="fas fa-chart-line"></i>
-                <h3>68.2%</h3>
-                <p>Conversion Rate</p>
+                <i class="fas fa-exclamation-triangle"></i>
+
+                <h3>{{ number_format($stats['failed']) }}</h3>
+
+                <p>Failed Checks</p>
+
                 <div class="progress-text">
-                    <span>Growth</span>
-                    <span>+5%</span>
+                    <span>Recorded failures</span>
+                    <span>{{ $stats['failed'] }}</span>
                 </div>
+
                 <div class="progress">
-                    <div class="progress-bar bg-info" role="progressbar" style="width: 68%"></div>
+                    <div
+                        class="progress-bar bg-danger"
+                        style="width: {{ $stats['total'] > 0
+                        ? round($stats['failed'] / $stats['total'] * 100)
+                        : 0 }}%"
+                    ></div>
                 </div>
             </div>
+
         </div>
 
-        <div class="row">
-{{--            <div class="col-lg-8">--}}
-{{--                <div class="chart-container">--}}
-{{--                    <div class="chart-header">--}}
-{{--                        <h3>Revenue Overview</h3>--}}
-{{--                        <div class="chart-actions">--}}
-{{--                            <select>--}}
-{{--                                <option>Last 7 Days</option>--}}
-{{--                                <option>Last 30 Days</option>--}}
-{{--                                <option>Last 90 Days</option>--}}
-{{--                            </select>--}}
-{{--                        </div>--}}
-{{--                    </div>--}}
-{{--                    <div id="revenueChart" style="height: 300px;">--}}
-{{--                        <!-- Chart would be rendered here with a library like Chart.js -->--}}
-{{--                        <div class="d-flex align-items-center justify-content-center h-100 text-muted">--}}
-{{--                            <div class="text-center">--}}
-{{--                                <i class="fas fa-chart-bar fa-3x mb-3"></i>--}}
-{{--                                <p>Revenue chart visualization would appear here</p>--}}
-{{--                            </div>--}}
-{{--                        </div>--}}
-{{--                    </div>--}}
-{{--                </div>--}}
-{{--            </div>--}}
+        {{-- My Servers --}}
+        <div class="card border-0 shadow-sm mt-4"
+             style="border-radius: 15px;">
 
-{{--            <div class="col-lg-4">--}}
-{{--                <div class="recent-activities">--}}
-{{--                    <h3 class="mb-4">Recent Activities</h3>--}}
+            <div class="card-header bg-white border-0 p-4">
+                <div class="d-flex justify-content-between
+                        align-items-center flex-wrap gap-3">
 
-{{--                    <div class="activity-item">--}}
-{{--                        <div class="activity-icon user">--}}
-{{--                            <i class="fas fa-user-plus"></i>--}}
-{{--                        </div>--}}
-{{--                        <div class="activity-content">--}}
-{{--                            <h5>New user registered</h5>--}}
-{{--                            <p>John Doe joined the platform</p>--}}
-{{--                        </div>--}}
-{{--                        <div class="activity-time">2 min ago</div>--}}
-{{--                    </div>--}}
+                    <div>
+                        <h4 class="mb-1 fw-bold">
+                            My Servers
+                        </h4>
 
-{{--                    <div class="activity-item">--}}
-{{--                        <div class="activity-icon order">--}}
-{{--                            <i class="fas fa-shopping-bag"></i>--}}
-{{--                        </div>--}}
-{{--                        <div class="activity-content">--}}
-{{--                            <h5>New order received</h5>--}}
-{{--                            <p>Order #ORD-7854 placed</p>--}}
-{{--                        </div>--}}
-{{--                        <div class="activity-time">15 min ago</div>--}}
-{{--                    </div>--}}
+                        <p class="text-muted mb-0">
+                            Your registered ZeitOps infrastructure
+                        </p>
+                    </div>
 
-{{--                    <div class="activity-item">--}}
-{{--                        <div class="activity-icon payment">--}}
-{{--                            <i class="fas fa-credit-card"></i>--}}
-{{--                        </div>--}}
-{{--                        <div class="activity-content">--}}
-{{--                            <h5>Payment received</h5>--}}
-{{--                            <p>$245.99 payment completed</p>--}}
-{{--                        </div>--}}
-{{--                        <div class="activity-time">1 hour ago</div>--}}
-{{--                    </div>--}}
+                    <a
+                        href="{{ url('/panel/servers/add') }}"
+                        class="btn btn-primary"
+                    >
+                        <i class="fas fa-plus me-2"></i>
+                        Add Server
+                    </a>
 
-{{--                    <div class="activity-item">--}}
-{{--                        <div class="activity-icon system">--}}
-{{--                            <i class="fas fa-cog"></i>--}}
-{{--                        </div>--}}
-{{--                        <div class="activity-content">--}}
-{{--                            <h5>System updated</h5>--}}
-{{--                            <p>Version 2.3.5 deployed</p>--}}
-{{--                        </div>--}}
-{{--                        <div class="activity-time">3 hours ago</div>--}}
-{{--                    </div>--}}
+                </div>
+            </div>
 
-{{--                    <div class="activity-item">--}}
-{{--                        <div class="activity-icon user">--}}
-{{--                            <i class="fas fa-user-check"></i>--}}
-{{--                        </div>--}}
-{{--                        <div class="activity-content">--}}
-{{--                            <h5>Profile updated</h5>--}}
-{{--                            <p>Sarah Johnson updated her profile</p>--}}
-{{--                        </div>--}}
-{{--                        <div class="activity-time">5 hours ago</div>--}}
-{{--                    </div>--}}
-{{--                </div>--}}
-{{--            </div>--}}
+            <div class="card-body p-0">
+
+                @if($servers->isEmpty())
+
+                    <div class="text-center py-5 px-3">
+
+                        <i class="fas fa-server fa-3x text-muted mb-3"></i>
+
+                        <h5>No Servers Yet</h5>
+
+                        <p class="text-muted">
+                            Connect your first VPS to start
+                            managing your infrastructure.
+                        </p>
+
+                        <a
+                            href="{{ url('/panel/servers/add') }}"
+                            class="btn btn-primary"
+                        >
+                            Add Your First Server
+                        </a>
+
+                    </div>
+
+                @else
+
+                    <div class="table-responsive">
+
+                        <table class="table table-hover align-middle mb-0">
+
+                            <thead class="table-light">
+                            <tr>
+                                <th class="ps-4">Server</th>
+                                <th>SSH Port</th>
+                                <th>Status</th>
+                                <th>Host Identity</th>
+                                <th>Last SSH Success</th>
+                                <th class="text-end pe-4">Action</th>
+                            </tr>
+                            </thead>
+
+                            <tbody>
+
+                            @foreach($servers as $server)
+
+                                <tr>
+
+                                    <td class="ps-4">
+                                        <div class="fw-semibold">
+                                            {{ $server['ip'] }}
+                                        </div>
+
+                                        <small class="text-muted">
+                                            {{ $server['id'] }}
+                                        </small>
+                                    </td>
+
+                                    <td>
+                                        {{ $server['port'] }}
+                                    </td>
+
+                                    <td>
+                                        @if($server['status'] === 'connected')
+                                            <span class="badge bg-success">
+                                                SSH Verified
+                                            </span>
+
+                                        @elseif($server['status'] === 'failed')
+                                            <span class="badge bg-danger">
+                                                Failed
+                                            </span>
+
+                                        @else
+                                            <span class="badge bg-warning text-dark">
+                                                Pending
+                                            </span>
+                                        @endif
+                                    </td>
+
+                                    <td>
+                                        @if($server['fingerprint_verified'])
+                                            <span class="text-success">
+                                                <i class="fas fa-shield-alt me-1"></i>
+                                                Confirmed
+                                            </span>
+                                        @else
+                                            <span class="text-muted">
+                                                Not verified
+                                            </span>
+                                        @endif
+                                    </td>
+
+                                    <td>
+                                        @if($server['last_connected_at'])
+                                            {{ \Illuminate\Support\Carbon::parse(
+                                                $server['last_connected_at']
+                                            )->format('d M Y, H:i') }}
+                                        @else
+                                            <span class="text-muted">Never</span>
+                                        @endif
+                                    </td>
+
+                                    <td class="text-end pe-4">
+                                        <span class="text-muted small">
+                                            Management coming soon
+                                        </span>
+                                    </td>
+
+                                </tr>
+
+                            @endforeach
+
+                            </tbody>
+
+                        </table>
+
+                    </div>
+
+                @endif
+
+            </div>
+
         </div>
+
     </div>
+
 @endsection

@@ -1,15 +1,28 @@
 <nav id="sidebar">
     <div class="sidebar-header">
-        <div class="logo"><a href="{{ env('APP_URL') }}"><img src="{{ asset('/img/favicon.png') }}" width="40" height="40"></div></a>
-        <h3>HackAlone</h3>
+        <a href="{{ url('/panel/dashboard') }}" class="sidebar-brand">
+            <img
+                src="{{ asset('img/sidebar.png') }}"
+                alt="ZeitOps"
+                class="sidebar-logo"
+            >
+        </a>
     </div>
 
     <div class="sidebar-menu">
         <ul>
-            <li><a href="#" class="active"><i class="fas fa-home"></i> <span class="menu-text">Dashboard</span></a></li>
+            <li>
+                <a href="#" class="active">
+                    <i class="fas fa-home"></i>
+                    <span class="menu-text">Dashboard</span>
+                </a>
+            </li>
 
             <li class="menu-item has-submenu">
-                <a href="#"><i class="fas fa-server"></i> <span class="menu-text">Infrastructure</span></a>
+                <a href="#">
+                    <i class="fas fa-server"></i>
+                    <span class="menu-text">Infrastructure</span>
+                </a>
                 <ul class="submenu">
                     <li>
                         <a href="{{ url('/panel/servers/add') }}" class="{{ request()->path() === 'panel/servers/add' ? 'active' : '' }}">
@@ -115,18 +128,22 @@
                 </ul>
             </li>
 
-            <li><a href="#"><i class="fas fa-book"></i> <span class="menu-text">Documentation</span></a></li>
+            <li>
+                <a href="#">
+                    <i class="fas fa-book"></i>
+                    <span class="menu-text">Documentation</span>
+                </a>
+            </li>
         </ul>
     </div>
 
     <div class="sidebar-footer">
         <form method="POST" action="{{ route('logout') }}">
             @csrf
-            <button type="submit" class="d-flex align-items-center text-white text-decoration-none btn btn-link p-0 m-0">
-                <i class="fas fa-sign-out-alt me-2"></i>
+            <button type="submit" class="logout-btn">
+                <i class="fas fa-sign-out-alt"></i>
                 <span class="menu-text">Logout</span>
             </button>
         </form>
     </div>
-
 </nav>
