@@ -1,8 +1,12 @@
+```
 <?php
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+
+// Shared enrollment lifetime (2 hours). Keep the login redirect check in sync.
+const ZEITOPS_ENROLLMENT_TTL = 7200;
 use Symfony\Component\Process\Process;
 use phpseclib3\Net\SSH2;
 use phpseclib3\Crypt\PublicKeyLoader;
@@ -95,6 +99,7 @@ BASH;
         'private_key_path' => $privateKeyPath,
         'host_fingerprint' => null,
         'status' => 'pending',
+        'user_id' => null,
         'created_at' => now()->toIso8601String(),
         'enrollment_token_hash' => hash('sha256', $enrollmentToken),
     ];
@@ -111,6 +116,14 @@ BASH;
 
     chmod($metadataPath, 0600);
 
+    session([
+        'zeitops.pending_enrollment' => [
+            'server_id' => $serverId,
+            'token' => $enrollmentToken,
+            'created_at' => now()->timestamp,
+        ],
+    ]);
+
     // Display generated command
     return view('test.new_server', compact(
         'validated',
@@ -121,6 +134,96 @@ BASH;
     ));
 
 })->middleware('throttle:5,1')->name('servers.store');
+
+Route::get('/servers/enroll/{serverId}', function (string $serverId) {
+
+    abort_unless(Str::isUuid($serverId), 404);
+
+    $pending = session('zeitops.pending_enrollment');
+
+    // Verify this enrollment belongs to the current session
+    abort_unless(
+        is_array($pending) &&
+        ($pending['server_id'] ?? null) === $serverId &&
+        !empty($pending['token']),
+        403
+    );
+
+    // The enrollment session is valid for two hours.
+    $age = now()->timestamp - (int) ($pending['created_at'] ?? 0);
+    abort_if($age < 0 || $age > ZEITOPS_ENROLLMENT_TTL, 403,
+        'Your enrollment session has expired.');
+
+    $directory = storage_path(
+        "app/private/zeitops/servers/{$serverId}"
+    );
+
+    $metadataPath = $directory . '/server.json';
+    $publicKeyPath = $directory . '/id_ed25519.pub';
+
+    abort_unless(
+        is_file($metadataPath) && is_file($publicKeyPath),
+        404
+    );
+
+    $server = json_decode(
+        file_get_contents($metadataPath),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+
+    // Match the token to the stored enrollment record
+    abort_unless(
+        hash_equals(
+            $server['enrollment_token_hash'] ?? '',
+            hash('sha256', $pending['token'])
+        ),
+        403
+    );
+
+    // Claim this pending enrollment on the first authenticated visit.
+    // A session token is required above; another user cannot take an owned record.
+    $handle = fopen($metadataPath, 'c+');
+    abort_unless($handle && flock($handle, LOCK_EX), 500);
+    try {
+        rewind($handle);
+        $server = json_decode(stream_get_contents($handle), true, 512, JSON_THROW_ON_ERROR);
+        abort_unless(hash_equals(
+            $server['enrollment_token_hash'] ?? '',
+            hash('sha256', $pending['token'])
+        ), 403);
+        abort_if(!empty($server['user_id']) &&
+            (int) $server['user_id'] !== (int) auth()->id(), 403);
+
+        if (empty($server['user_id'])) {
+            $server['user_id'] = auth()->id();
+            rewind($handle);
+            if (!ftruncate($handle, 0) || fwrite($handle, json_encode(
+                    $server, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR
+                )) === false) {
+                abort(500, 'Could not claim enrollment.');
+            }
+            fflush($handle);
+        }
+    } finally {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+    }
+
+    // Store the original server ID for the view
+    $ip = $server['ip'];
+    $serverId = $server['id'];
+    $enrollmentToken = $pending['token'];
+
+    return view('test.enroll', compact(
+        'ip',
+        'server',
+        'serverId',
+        'enrollmentToken'
+    ));
+
+})->middleware('auth')->name('servers.enroll');
 
 Route::get('/servers/check/{serverId}', function (Request $request, string $serverId) {
 
@@ -144,6 +247,20 @@ Route::get('/servers/check/{serverId}', function (Request $request, string $serv
         JSON_THROW_ON_ERROR
     );
 
+    // Require the authenticated owner AND the active enrollment session.
+    $pending = $request->session()->get('zeitops.pending_enrollment');
+    $age = now()->timestamp - (int) ($pending['created_at'] ?? 0);
+    abort_unless(
+        is_array($pending) &&
+        ($pending['server_id'] ?? null) === $serverId &&
+        is_string($pending['token'] ?? null) &&
+        $age >= 0 && $age <= ZEITOPS_ENROLLMENT_TTL &&
+        (int) ($server['user_id'] ?? 0) === (int) auth()->id() &&
+        hash_equals(hash('sha256', $pending['token']),
+            $server['enrollment_token_hash'] ?? ''),
+        403, 'Enrollment access denied.'
+    );
+
     \Log::info('ZeitOps fingerprint debugging', [
         'server_id' => $serverId,
         'metadata_path' => $metadataPath,
@@ -158,6 +275,7 @@ Route::get('/servers/check/{serverId}', function (Request $request, string $serv
     abort_unless(
         is_string($providedToken) &&
         $providedToken !== '' &&
+        hash_equals($pending['token'], $providedToken) &&
         is_string($expectedHash) &&
         $expectedHash !== '' &&
         hash_equals(
@@ -317,4 +435,101 @@ Route::get('/servers/check/{serverId}', function (Request $request, string $serv
         'message' => $sshStatus['message'],
     ]);
 
-})->middleware('throttle:5,1')->name('servers.check');
+})->middleware(['auth', 'throttle:5,1'])->name('servers.check');
+
+
+Route::post('/servers/enroll/{serverId}/verify-host', function (
+    Request $request,
+    string $serverId
+) {
+    abort_unless(Str::isUuid($serverId), 404);
+
+    $validated = $request->validate([
+        'fingerprint' => [
+            'required',
+            'string',
+            'regex:/^SHA256:[A-Za-z0-9+\/]{43}$/',
+        ],
+    ]);
+
+    $pending = $request->session()->get(
+        'zeitops.pending_enrollment'
+    );
+
+    abort_unless(
+        is_array($pending) &&
+        ($pending['server_id'] ?? null) === $serverId &&
+        is_string($pending['token'] ?? null) &&
+        (now()->timestamp - (int) ($pending['created_at'] ?? 0))
+        >= 0 &&
+        (now()->timestamp - (int) ($pending['created_at'] ?? 0))
+        <= ZEITOPS_ENROLLMENT_TTL,
+        403,
+        'Enrollment session is missing or expired.'
+    );
+
+    $path = storage_path(
+        "app/private/zeitops/servers/{$serverId}/server.json"
+    );
+
+    abort_unless(is_file($path), 404);
+
+    $server = json_decode(
+        file_get_contents($path),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+
+    abort_unless(
+        !empty($server['enrollment_token_hash']) &&
+        hash_equals(
+            $server['enrollment_token_hash'],
+            hash('sha256', $pending['token'])
+        ),
+        403
+    );
+
+    abort_unless((int) ($server['user_id'] ?? 0) === (int) auth()->id(),
+        403, 'This enrollment is not assigned to your account.');
+
+    // Do not silently replace a previously trusted SSH identity.
+    abort_if(!empty($server['host_fingerprint']) &&
+        !hash_equals($server['host_fingerprint'], $validated['fingerprint']),
+        409, 'The server identity has already been verified.');
+
+    // The user must independently compare this with the VPS console.
+    $server['host_fingerprint'] = $validated['fingerprint'];
+
+    $json = json_encode(
+        $server,
+        JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR
+    );
+
+    // Write within the private enrollment directory.
+    $tempPath = tempnam(dirname($path), 'metadata-');
+
+    abort_if($tempPath === false, 500);
+
+    try {
+        if (file_put_contents($tempPath, $json, LOCK_EX) === false) {
+            throw new RuntimeException('Unable to save fingerprint.');
+        }
+
+        chmod($tempPath, 0600);
+
+        if (!rename($tempPath, $path)) {
+            throw new RuntimeException('Unable to update enrollment.');
+        }
+    } finally {
+        if (is_file($tempPath)) {
+            unlink($tempPath);
+        }
+    }
+
+    return redirect()
+        ->route('servers.enroll', ['serverId' => $serverId])
+        ->with('success', 'Server fingerprint confirmed.');
+
+})->middleware(['auth', 'throttle:5,1'])
+    ->name('servers.verify-host');

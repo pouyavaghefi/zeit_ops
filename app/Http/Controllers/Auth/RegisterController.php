@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers\Auth;
 
-use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rules\Password;
 
 class RegisterController extends AuthController
 {
@@ -17,19 +17,39 @@ class RegisterController extends AuthController
     public function doRegister(Request $request)
     {
         $data = $request->validate([
-            'name' => 'required',
-            'email' => 'required|email|unique:users',
-            'password' => 'required|min:6|max:20',
-            'password_confirmation' => 'required|same:password',
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', 'unique:users,email'],
+            'password' => [
+                'required',
+                'confirmed',
+                Password::min(8),
+            ],
         ]);
-        $password = Hash::make($data['password']);
 
         $user = User::create([
             'name' => $data['name'],
             'email' => $data['email'],
-            'password' => $password
+            'password' => Hash::make($data['password']),
         ]);
 
-        return redirect()->route('login')->with('success','Your account has been created. An email has been sent to your inbox. Please activate your account.');
+        // Keep the current ZeitOps enrollment in the session.
+        // Do not generate a new UUID or SSH key here.
+        $pendingEnrollment = $request->session()->get(
+            'zeitops.pending_enrollment'
+        );
+
+        if ($pendingEnrollment) {
+            $request->session()->put(
+                'zeitops.pending_enrollment',
+                $pendingEnrollment
+            );
+        }
+
+        return redirect()
+            ->route('login')
+            ->with(
+                'success',
+                'Your account has been created. Please sign in to continue.'
+            );
     }
 }
