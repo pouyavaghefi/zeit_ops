@@ -449,6 +449,15 @@
                     aria-live="polite"
                 ></div>
 
+                <div id="dashboard-action" class="mt-4" style="display: none;">
+                    <a
+                        href="{{ url('/panel/dashboard') }}"
+                        class="zo-btn"
+                    >
+                        Go to Dashboard &rarr;
+                    </a>
+                </div>
+
             @endif
 
         </section>
@@ -487,13 +496,14 @@
 
             const checkButton = document.getElementById('check-access');
             const checkResult = document.getElementById('check-result');
+            const dashboardAction = document.getElementById('dashboard-action');
 
             if (!checkButton || !checkResult) {
                 return;
             }
 
             checkButton.addEventListener('click', async () => {
-
+                dashboardAction.style.display = 'none';
                 checkButton.disabled = true;
                 checkButton.textContent = 'Checking...';
 
@@ -519,28 +529,30 @@
 
                     if (
                         response.ok &&
-                        (data.success === true || data.ssh?.ok === true)
+                        data.success === true &&
+                        data.ssh?.ok === true
                     ) {
-
                         checkResult.className = 'zo-status success';
 
                         checkResult.textContent =
                             'SSH authentication successful! ' +
                             'Your server is connected to ZeitOps.';
 
-                    } else {
+                        dashboardAction.style.display = 'block';
 
+                    } else {
                         checkResult.className = 'zo-status error';
 
                         checkResult.textContent =
-                            data.message ||
-                            'Unable to verify SSH connection.';
+                            data.message || 'Unable to verify SSH connection.';
 
+                        dashboardAction.style.display = 'none';
                     }
 
                 } catch (error) {
                     console.error('ZeitOps frontend error:', error);
 
+                    dashboardAction.style.display = 'none';
                     checkResult.className = 'zo-status error';
                     checkResult.textContent =
                         'Frontend error: ' + error.message;
