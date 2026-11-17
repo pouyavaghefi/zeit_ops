@@ -34,18 +34,23 @@ Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () 
         ->name('websites.')
         ->group(function () {
 
-            // =====================================
-            // VIEW ALL WEBSITES
-            // =====================================
+            /*
+            |--------------------------------------------------------------------------
+            | Website Listing
+            |--------------------------------------------------------------------------
+            */
 
             Route::get('/all', [
                 WebsiteController::class,
                 'all'
             ])->name('all');
 
-            // =====================================
-            // WEBSITE SETUP PAGE
-            // =====================================
+
+            /*
+            |--------------------------------------------------------------------------
+            | Website Setup Page
+            |--------------------------------------------------------------------------
+            */
 
             Route::get('/{website}/setup', [
                 WebsiteController::class,
@@ -54,9 +59,16 @@ Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () 
                 ->whereNumber('website')
                 ->name('setup');
 
-            // =====================================
-            // VIEW PROVISIONING PROGRESS
-            // =====================================
+
+            /*
+            |--------------------------------------------------------------------------
+            | Provisioning Status API
+            |--------------------------------------------------------------------------
+            |
+            | Available to authenticated website owners.
+            | Does not require an active membership.
+            |
+            */
 
             Route::get('/{website}/provision/status', [
                 WebsiteProvisioningController::class,
@@ -65,26 +77,31 @@ Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () 
                 ->whereNumber('website')
                 ->name('provision.status');
 
-            // =====================================
-            // ACTIVE MEMBERSHIP REQUIRED
-            // =====================================
 
-            Route::middleware('active.membership')
+            /*
+            |--------------------------------------------------------------------------
+            | Active Membership Required
+            |--------------------------------------------------------------------------
+            */
+
+            Route::middleware(['active.membership'])
                 ->group(function () {
 
-                    // Add New Website
+                    // Show Create Website Form
                     Route::get('/create', [
                         WebsiteController::class,
                         'create'
                     ])->name('create');
 
-                    // Save Website
+
+                    // Save Website Configuration
                     Route::post('/', [
                         WebsiteController::class,
                         'store'
                     ])->name('store');
 
-                    // Start VPS Provisioning
+
+                    // Start Server Provisioning
                     Route::post('/{website}/provision', [
                         WebsiteProvisioningController::class,
                         'start'

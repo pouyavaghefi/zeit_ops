@@ -1203,13 +1203,13 @@
                                 id="zo-start-provision"
                                 type="button"
                                 class="zo-provision-button"
-                                @disabled(!$canProvision)
+                                disabled
                             >
                                 <i class="fas fa-play"></i>
 
                                 <span id="zo-start-button-text">
-                                Check & Prepare Server
-                            </span>
+                                    Provisioning Not Available Yet
+                                </span>
                             </button>
 
                         </div>
