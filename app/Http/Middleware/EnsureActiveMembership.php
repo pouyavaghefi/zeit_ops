@@ -1,4 +1,3 @@
-
 <?php
 
 namespace App\Http\Middleware;
@@ -14,31 +13,15 @@ class EnsureActiveMembership
         Request $request,
         Closure $next
     ): Response {
-        if (!auth()->check()) {
-            abort(401);
-        }
-
-        $hasMembership = DB::table(
-            'membership_plan_registered_users'
-        )
-            ->where('user_id', auth()->id())
+        $hasMembership = DB::table('membership_plan_registered_users')
+            ->where('user_id', $request->user()->id)
             ->where('status', 1)
             ->exists();
 
         if (!$hasMembership) {
-            if ($request->expectsJson()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'An active membership is required.',
-                ], 403);
-            }
-
             return redirect()
                 ->route('panel.dashboard')
-                ->with(
-                    'error',
-                    'You need an active ZeitOps membership to create websites.'
-                );
+                ->with('error', 'An active membership is required.');
         }
 
         return $next($request);
