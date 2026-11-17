@@ -104,7 +104,8 @@
                     </li>
 
                     <li>
-                        <a href="/panel/servers">
+                        <a href="{{ route('panel.servers.all') }}"
+                           class="{{ request()->routeIs('panel.servers.all') ? 'active' : '' }}">
                             <i class="fas fa-list"></i>
                             All Servers
                         </a>
