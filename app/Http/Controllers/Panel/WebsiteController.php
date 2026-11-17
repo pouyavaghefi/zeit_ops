@@ -93,10 +93,67 @@ class WebsiteController extends Controller
     |--------------------------------------------------------------------------
     */
 
+
     public function store(Request $request)
     {
+        // Supported stack configurations.
+        // Keep this in sync with the frontend configuration.
+
+        $stacks = [
+            'lamp' => [
+                'frameworks' => [
+                    'laravel', 'symfony', 'wordpress', 'php'
+                ],
+                'versions' => ['8.3', '8.4'],
+                'php' => true,
+            ],
+
+            'lemp' => [
+                'frameworks' => [
+                    'laravel', 'symfony', 'wordpress', 'php'
+                ],
+                'versions' => ['8.3', '8.4'],
+                'php' => true,
+            ],
+
+            'mern' => [
+                'frameworks' => [
+                    'react-express', 'next-express'
+                ],
+                'versions' => ['20', '22', '24'],
+                'php' => false,
+            ],
+
+            'mean' => [
+                'frameworks' => [
+                    'angular-express'
+                ],
+                'versions' => ['20', '22', '24'],
+                'php' => false,
+            ],
+
+            'python' => [
+                'frameworks' => [
+                    'django', 'flask', 'fastapi'
+                ],
+                'versions' => ['3.11', '3.12', '3.13'],
+                'php' => false,
+            ],
+
+            'nodejs' => [
+                'frameworks' => [
+                    'express', 'nestjs', 'nextjs'
+                ],
+                'versions' => ['20', '22', '24'],
+                'php' => false,
+            ],
+        ];
+
         $validated = $request->validate([
-            'server_id' => ['required', 'uuid'],
+            'server_id' => [
+                'required',
+                'uuid',
+            ],
 
             'name' => [
                 'required',
@@ -114,17 +171,19 @@ class WebsiteController extends Controller
 
             'stack' => [
                 'required',
-                Rule::in(['lamp']),
+                \Illuminate\Validation\Rule::in(array_keys($stacks)),
             ],
 
             'framework' => [
                 'required',
-                Rule::in(['laravel']),
+                'string',
+                'max:40',
             ],
 
-            'php_version' => [
+            'runtime_version' => [
                 'required',
-                Rule::in(['8.3', '8.4']),
+                'string',
+                'max:20',
             ],
 
             'repository_url' => [
@@ -147,9 +206,7 @@ class WebsiteController extends Controller
                     );
 
                     if (!$validHttps && !$validSsh) {
-                        $fail(
-                            'Use a valid GitHub or GitLab repository URL.'
-                        );
+                        $fail('Enter a valid GitHub or GitLab repository URL.');
                     }
                 },
             ],
@@ -162,33 +219,47 @@ class WebsiteController extends Controller
             ],
         ]);
 
-        /*
-        |--------------------------------------------------------------------------
-        | Verify server UUID and ownership
-        |--------------------------------------------------------------------------
-        */
+        // Validate stack/framework/runtime compatibility.
+
+        $selectedStack = $stacks[$validated['stack']];
+
+        if (!in_array(
+            $validated['framework'],
+            $selectedStack['frameworks'],
+            true
+        )) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'framework' => 'The selected framework is not supported by this stack.',
+            ]);
+        }
+
+        if (!in_array(
+            $validated['runtime_version'],
+            $selectedStack['versions'],
+            true
+        )) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'runtime_version' => 'The selected runtime version is not supported.',
+            ]);
+        }
+
+        // Confirm the selected VPS belongs to this user.
 
         $serverId = $validated['server_id'];
 
-        $basePath = storage_path(
-            'app/private/zeitops/servers'
+        $metadataPath = storage_path(
+            "app/private/zeitops/servers/{$serverId}/server.json"
         );
 
-        $metadataPath = $basePath
-            . DIRECTORY_SEPARATOR
-            . $serverId
-            . DIRECTORY_SEPARATOR
-            . 'server.json';
-
-        if (!File::isFile($metadataPath)) {
-            throw ValidationException::withMessages([
+        if (!\Illuminate\Support\Facades\File::isFile($metadataPath)) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
                 'server_id' => 'The selected server does not exist.',
             ]);
         }
 
         try {
             $server = json_decode(
-                File::get($metadataPath),
+                \Illuminate\Support\Facades\File::get($metadataPath),
                 true,
                 512,
                 JSON_THROW_ON_ERROR
@@ -196,65 +267,71 @@ class WebsiteController extends Controller
         } catch (\Throwable $e) {
             report($e);
 
-            throw ValidationException::withMessages([
-                'server_id' => 'Unable to load the selected server.',
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'server_id' => 'Unable to read the selected server.',
             ]);
         }
 
         if (
             !is_array($server) ||
             ($server['id'] ?? null) !== $serverId ||
-            (string) ($server['user_id'] ?? '') !==
-            (string) auth()->id()
+            (string) ($server['user_id'] ?? '') !== (string) auth()->id()
         ) {
-            throw ValidationException::withMessages([
-                'server_id' => 'You cannot use the selected server.',
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'server_id' => 'You do not have permission to use this server.',
             ]);
         }
 
         if (($server['status'] ?? null) !== 'connected') {
-            throw ValidationException::withMessages([
-                'server_id' => 'The server must be connected first.',
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'server_id' => 'The selected server must be connected.',
             ]);
         }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Create website configuration
-        |--------------------------------------------------------------------------
-        */
 
         $domain = strtolower(
             rtrim(trim($validated['domain']), '.')
         );
 
-        $exists = Website::query()
-            ->where('server_id', $serverId)
+        if (\App\Models\Website::where('server_id', $serverId)
             ->where('domain', $domain)
-            ->exists();
+            ->exists()) {
 
-        if ($exists) {
-            throw ValidationException::withMessages([
-                'domain' => 'This domain already exists on the server.',
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'domain' => 'This domain is already registered on the selected server.',
             ]);
         }
 
-        $website = Website::create([
+        // A PHP version is relevant only for LAMP/LEMP.
+
+        $phpVersion = $selectedStack['php']
+            ? $validated['runtime_version']
+            : null;
+
+        // Document root depends on the selected framework.
+        // Actual remote paths are generated during provisioning.
+
+        $documentRoot = match ($validated['framework']) {
+            'laravel', 'symfony', 'php' => 'public',
+            'wordpress' => '.',
+            'react-express', 'angular-express' => 'dist',
+            'next-express', 'nextjs' => '.next',
+            'django', 'flask', 'fastapi',
+            'express', 'nestjs' => '.',
+            default => '.',
+        };
+
+        $website = \App\Models\Website::create([
             'user_id' => auth()->id(),
             'server_id' => $serverId,
-
             'name' => trim($validated['name']),
             'domain' => $domain,
-
-            'stack' => 'lamp',
-            'framework' => 'laravel',
-            'php_version' => $validated['php_version'],
-
+            'stack' => $validated['stack'],
+            'framework' => $validated['framework'],
+            'runtime_version' => $validated['runtime_version'],
+            'php_version' => $phpVersion,
             'repository_url' => $validated['repository_url'] ?? null,
-
             'repository_branch' => $validated['repository_branch'],
-
-            'document_root' => 'public',
+            'document_root' => $documentRoot,
             'status' => 'pending_provisioning',
         ]);
 
@@ -262,7 +339,8 @@ class WebsiteController extends Controller
             ->route('panel.websites.create')
             ->with(
                 'success',
-                "Website {$website->domain} created successfully. Server provisioning is the next step."
+                "Website {$website->domain} has been created. Deployment is pending."
             );
     }
+
 }
