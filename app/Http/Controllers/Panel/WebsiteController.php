@@ -365,4 +365,40 @@ class WebsiteController extends Controller
             );
     }
 
+    public function setup(int $website)
+    {
+        $website = \App\Models\Website::query()
+            ->where('user_id', auth()->id())
+            ->findOrFail($website);
+
+        $serverPath = storage_path(
+            "app/private/zeitops/servers/{$website->server_id}/server.json"
+        );
+
+        $server = null;
+
+        if (\Illuminate\Support\Facades\File::isFile($serverPath)) {
+            try {
+                $metadata = json_decode(
+                    \Illuminate\Support\Facades\File::get($serverPath),
+                    true,
+                    512,
+                    JSON_THROW_ON_ERROR
+                );
+
+                if (
+                    is_array($metadata) &&
+                    ($metadata['id'] ?? null) === $website->server_id &&
+                    (string) ($metadata['user_id'] ?? '') === (string) auth()->id()
+                ) {
+                    $server = $metadata;
+                }
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
+        return view('panel.websites.setup', compact('website', 'server'));
+    }
+
 }

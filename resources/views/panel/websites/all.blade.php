@@ -573,6 +573,146 @@
                 align-items: flex-start;
             }
         }
+
+
+        /* ==========================================
+           ZEITOPS SETUP NOTIFICATION
+        ========================================== */
+
+        .zo-setup-notice {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            padding: 22px;
+            margin-bottom: 25px;
+            border: 1px solid #cbdcff;
+            border-left: 4px solid #3477f5;
+            border-radius: 14px;
+            background: linear-gradient(110deg, #f0f5ff, #fff);
+            box-shadow: 0 5px 20px rgba(40, 90, 190, .045);
+        }
+
+        .zo-notice-icon {
+            width: 55px;
+            height: 55px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 14px;
+            background: #dfeaff;
+            color: #3569ed;
+            font-size: 24px;
+        }
+
+        .zo-notice-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .zo-notice-title {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 11px;
+            margin-bottom: 8px;
+        }
+
+        .zo-notice-title h3 {
+            margin: 0;
+            color: #20365d;
+            font-size: 17px;
+            font-weight: 750;
+        }
+
+        .zo-notice-badge {
+            background: #fff0d3;
+            color: #ad7212;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 5px 9px;
+            border-radius: 20px;
+        }
+
+        .zo-notice-content p {
+            font-size: 12px;
+            line-height: 1.7;
+            margin: 0 0 12px;
+            color: #60738f;
+        }
+
+        .zo-setup-steps {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            font-size: 11px;
+            color: #677b98;
+        }
+
+        .zo-setup-steps span:first-child {
+            color: #178d5c;
+            font-weight: 650;
+        }
+
+        .zo-step-arrow {
+            color: #aab8cd;
+            font-size: 9px;
+        }
+
+        .zo-notice-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 12px 16px;
+            background: #326df1;
+            color: #fff !important;
+            border-radius: 9px;
+            font-weight: 700;
+            font-size: 12px;
+            text-decoration: none;
+            white-space: nowrap;
+            transition: transform .2s, box-shadow .2s;
+        }
+
+        .zo-notice-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(50, 109, 241, .2);
+        }
+
+        @media(max-width: 850px) {
+            .zo-setup-notice {
+                flex-wrap: wrap;
+                align-items: flex-start;
+            }
+
+            .zo-notice-button {
+                width: 100%;
+            }
+        }
+
+        .zo-website-name-link {
+            color: #22334d;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
+        }
+
+        .zo-website-name-link i {
+            font-size: 11px;
+            color: #557ce9;
+            transition: transform .2s;
+        }
+
+        .zo-website-name-link:hover {
+            color: #346cf2;
+        }
+
+        .zo-website-name-link:hover i {
+            transform: translateX(4px);
+        }
     </style>
 
     <div class="zo-websites">
@@ -609,6 +749,86 @@
                 <i class="fas fa-check-circle me-2"></i>
                 {{ session('success') }}
             </div>
+        @endif
+
+
+        {{-- PENDING WEBSITE SETUP NOTIFICATION --}}
+
+        @php
+            $incompleteWebsites = $websites->whereIn('status', [
+                'pending_provisioning',
+                'failed',
+            ]);
+
+            $firstIncomplete = $incompleteWebsites->first();
+        @endphp
+
+        @if($firstIncomplete)
+
+            <div class="zo-setup-notice">
+
+                <div class="zo-notice-icon">
+                    <i class="fas fa-rocket"></i>
+                </div>
+
+                <div class="zo-notice-content">
+
+                    <div class="zo-notice-title">
+                        <h3>You're almost there!</h3>
+
+                        <span class="zo-notice-badge">
+                    Action Required
+                </span>
+                    </div>
+
+                    <p>
+                        @if($incompleteWebsites->count() === 1)
+                            Your website
+                            <strong>{{ $firstIncomplete->domain }}</strong>
+                            has been registered but is not deployed yet.
+                        @else
+                            You have
+                            <strong>{{ $incompleteWebsites->count() }}</strong>
+                            websites that need attention.
+                        @endif
+
+                        Continue the setup process to prepare your
+                        application for deployment.
+                    </p>
+
+                    <div class="zo-setup-steps">
+                <span>
+                    <i class="fas fa-check-circle"></i>
+                    Website Registered
+                </span>
+
+                        <i class="fas fa-chevron-right zo-step-arrow"></i>
+
+                        <span>
+                    <i class="fas fa-server"></i>
+                    Server Setup
+                </span>
+
+                        <i class="fas fa-chevron-right zo-step-arrow"></i>
+
+                        <span>
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    Deployment
+                </span>
+                    </div>
+
+                </div>
+
+                <a
+                    href="{{ route('panel.websites.setup', $firstIncomplete->id) }}"
+                    class="zo-notice-button"
+                >
+                    Continue Setup
+                    <i class="fas fa-arrow-right"></i>
+                </a>
+
+            </div>
+
         @endif
 
         {{-- STATISTICS --}}
@@ -767,7 +987,14 @@
                                 <div style="min-width:0;">
 
                                     <h3 class="zo-website-name">
-                                        {{ $website->name }}
+                                        <a
+                                            href="{{ route('panel.websites.setup', $website->id) }}"
+                                            class="zo-website-name-link"
+                                            title="Continue website setup"
+                                        >
+                                            {{ $website->name }}
+                                            <i class="fas fa-arrow-right"></i>
+                                        </a>
                                     </h3>
 
                                     <div class="zo-website-domain">
@@ -835,6 +1062,16 @@
                             </div>
 
                             <div class="zo-website-actions">
+                                <a
+                                    href="{{ route('panel.websites.setup', $website->id) }}"
+                                    class="zo-action-secondary"
+                                >
+                                    <i class="fas fa-arrow-right"></i>
+
+                                    {{ in_array($website->status, ['pending_provisioning', 'failed'])
+                                        ? 'Continue Setup'
+                                        : 'View Website' }}
+                                </a>
 
                                 @if($repository)
                                     @php

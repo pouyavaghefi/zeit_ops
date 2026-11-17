@@ -172,14 +172,14 @@
                 <ul class="submenu" @if(!$websitesActive) hidden @endif>
 
                     <li>
-                        <a href="#">
+                        <a href="/panel/websites/create">
                             <i class="fas fa-plus-circle"></i>
                             Add New Website
                         </a>
                     </li>
 
                     <li>
-                        <a href="#">
+                        <a href="/panel/websites/all">
                             <i class="fas fa-list"></i>
                             All Websites
                         </a>

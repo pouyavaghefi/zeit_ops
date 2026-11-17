@@ -49,6 +49,10 @@ Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () 
                     'all'
                 ])->name('websites.all');
 
+                Route::get('/{website}/setup', [WebsiteController::class, 'setup'])
+                    ->whereNumber('website')
+                    ->name('setup');
+
             });
 
         });
