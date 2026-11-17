@@ -44,6 +44,11 @@ Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () 
                     'store'
                 ])->name('store');
 
+                Route::get('/websites/all', [
+                    WebsiteController::class,
+                    'all'
+                ])->name('websites.all');
+
             });
 
         });

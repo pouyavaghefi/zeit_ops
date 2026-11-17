@@ -12,6 +12,16 @@ use Illuminate\Validation\ValidationException;
 
 class WebsiteController extends Controller
 {
+    public function all()
+    {
+        $websites = Website::query()
+            ->where('user_id', auth()->id())
+            ->latest()
+            ->get();
+
+        return view('panel.websites.all', compact('websites'));
+    }
+
     /*
     |--------------------------------------------------------------------------
     | GET /panel/websites/create
@@ -348,10 +358,10 @@ class WebsiteController extends Controller
         ]);
 
         return redirect()
-            ->route('panel.websites.create')
+            ->route('panel.websites.all')
             ->with(
                 'success',
-                "Website {$website->domain} has been created. Deployment is pending."
+                "Website {$website->domain} created successfully! It's now pending provisioning."
             );
     }
 
