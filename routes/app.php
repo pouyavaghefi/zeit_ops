@@ -47,7 +47,7 @@ Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () 
                 Route::get('/all', [
                     WebsiteController::class,
                     'all'
-                ])->name('websites.all');
+                ])->name('all');
 
                 Route::get('/{website}/setup', [WebsiteController::class, 'setup'])
                     ->whereNumber('website')
