@@ -175,7 +175,8 @@ class ServerController extends PanelController
 
     public function add()
     {
-        return view('panel.servers.add');
+        return redirect('servers/new');
+//        return view('panel.servers.add');
     }
 
     public function store(Request $request)

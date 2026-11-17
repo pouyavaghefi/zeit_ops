@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Panel\DashboardController;
 use App\Http\Controllers\Panel\ServerController;
 use App\Http\Controllers\Panel\ActivityController;
+use App\Http\Controllers\Panel\WebsiteController;
 
 Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () {
 
@@ -26,5 +27,25 @@ Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () 
         Route::get('/check/{ip}', [ServerController::class, 'check'])->name('check');
 
     });
+
+    Route::prefix('websites')
+        ->name('websites.')
+        ->group(function () {
+
+            Route::middleware('active.membership')->group(function () {
+
+                Route::get('/create', [
+                    WebsiteController::class,
+                    'create'
+                ])->name('create');
+
+                Route::post('/', [
+                    WebsiteController::class,
+                    'store'
+                ])->name('store');
+
+            });
+
+        });
 
 });
