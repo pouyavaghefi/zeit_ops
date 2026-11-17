@@ -4,9 +4,175 @@ namespace App\Http\Controllers\Panel;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Carbon;
 
 class ServerController extends PanelController
 {
+
+    /**
+     * Display servers owned by the authenticated user.
+     *
+     * Route: GET /panel/servers/all
+     */
+    public function all()
+    {
+        $userId = (string) auth()->id();
+
+        $basePath = storage_path(
+            'app/private/zeitops/servers'
+        );
+
+        $servers = collect();
+
+        if (File::isDirectory($basePath)) {
+            foreach (File::directories($basePath) as $directory) {
+
+                $metadataPath = $directory
+                    . DIRECTORY_SEPARATOR
+                    . 'server.json';
+
+                if (!File::isFile($metadataPath)) {
+                    continue;
+                }
+
+                try {
+                    $metadata = json_decode(
+                        File::get($metadataPath),
+                        true,
+                        512,
+                        JSON_THROW_ON_ERROR
+                    );
+                } catch (\Throwable $e) {
+                    report($e);
+                    continue;
+                }
+
+                if (!is_array($metadata)) {
+                    continue;
+                }
+
+                // Never display another user's server.
+                if (
+                    !isset($metadata['user_id']) ||
+                    (string) $metadata['user_id'] !== $userId
+                ) {
+                    continue;
+                }
+
+                $serverId = $metadata['server_id']
+                    ?? basename($directory);
+
+                $ip = $metadata['ip_address']
+                    ?? $metadata['ip']
+                    ?? $metadata['host']
+                    ?? null;
+
+                $port = $metadata['port']
+                    ?? $metadata['ssh_port']
+                    ?? 22;
+
+                $rawStatus = strtolower(
+                    (string) ($metadata['status'] ?? 'pending')
+                );
+
+                $status = match ($rawStatus) {
+                    'connected', 'verified', 'active'
+                    => 'connected',
+
+                    'failed', 'error', 'disconnected'
+                    => 'failed',
+
+                    default => 'pending',
+                };
+
+                $fingerprint = $metadata['host_fingerprint']
+                    ?? $metadata['ssh_host_fingerprint']
+                    ?? $metadata['verified_host_fingerprint']
+                    ?? null;
+
+                $lastChecked = $metadata['last_checked_at']
+                    ?? null;
+
+                $lastConnected = $metadata['last_connected_at']
+                    ?? null;
+
+                $formatDate = static function ($value) {
+                    if (!$value) {
+                        return null;
+                    }
+
+                    try {
+                        return Carbon::parse($value)
+                            ->format('M j, Y H:i');
+                    } catch (\Throwable $e) {
+                        return null;
+                    }
+                };
+
+                $servers->push([
+                    'id' => $serverId,
+
+                    'name' => $metadata['name']
+                        ?? $metadata['server_name']
+                            ?? 'Server ' . substr($serverId, 0, 8),
+
+                    'ip' => $ip,
+                    'port' => (int) $port,
+
+                    'username' => $metadata['ssh_username']
+                        ?? $metadata['username']
+                            ?? 'zeitops',
+
+                    'status' => $status,
+
+                    'host_verified' => !empty($fingerprint),
+
+                    'fingerprint' => $fingerprint,
+
+                    'last_checked_at' => $formatDate($lastChecked),
+
+                    'last_connected_at' => $formatDate($lastConnected),
+
+                    'last_error' => $metadata['last_error']
+                        ?? null,
+
+                    'created_at' => $metadata['created_at']
+                        ?? null,
+                ]);
+            }
+        }
+
+        // Most recently registered servers first.
+        $servers = $servers->sortByDesc(
+            fn ($server) => $server['created_at'] ?? ''
+        )->values();
+
+        $stats = [
+            'total' => $servers->count(),
+
+            'connected' => $servers->where(
+                'status',
+                'connected'
+            )->count(),
+
+            'pending' => $servers->where(
+                'status',
+                'pending'
+            )->count(),
+
+            'failed' => $servers->where(
+                'status',
+                'failed'
+            )->count(),
+        ];
+
+        return view('panel.servers.all', [
+            'servers' => $servers,
+            'stats' => $stats,
+        ]);
+    }
+
     public function add()
     {
         return view('panel.servers.add');
