@@ -104,7 +104,7 @@
                     </li>
 
                     <li>
-                        <a href="#">
+                        <a href="/panel/servers">
                             <i class="fas fa-list"></i>
                             All Servers
                         </a>

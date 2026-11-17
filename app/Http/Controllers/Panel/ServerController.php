@@ -286,9 +286,4 @@ EOT;
             'sshStatus' => $sshStatus,
         ]);
     }
-
-    public function all()
-    {
-        return view('panel.servers.all');
-    }
 }
