@@ -273,6 +273,10 @@
             .zo-wizard-detail-grid { grid-template-columns: 1fr; }
             .zo-wizard-card-body { padding: 17px; }
         }
+
+        #server-requirements {
+            scroll-margin-top: 110px;
+        }
     </style>
 
     <div class="zo-wizard">
@@ -319,7 +323,11 @@
             </div>
 
             {{-- STEP 1 --}}
-            <section class="zo-wizard-card">
+            {{-- STEP 3 --}}
+            <section
+                id="server-requirements"
+                class="zo-wizard-card"
+            >
                 <div class="zo-wizard-card-head">
                     <div class="zo-wizard-step done">
                         <i class="fas fa-check"></i>
@@ -499,5 +507,25 @@
 
         </div>
     </div>
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+
+            const section = document.getElementById('server-requirements');
+
+            if (!section) return;
+
+            window.requestAnimationFrame(function () {
+
+                section.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'start'
+                });
+
+            });
+
+        });
+    </script>
 
 @endsection
