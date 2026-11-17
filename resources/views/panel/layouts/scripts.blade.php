@@ -155,10 +155,21 @@
             }
 
             trigger.setAttribute('aria-controls', submenu.id);
-            trigger.setAttribute('aria-expanded', 'false');
 
-            closeDropdown(item);
+            // Preserve the active dropdown rendered by Laravel.
+            const isActive =
+                item.classList.contains('submenu-open') ||
+                submenu.querySelector('a.active, a[aria-current="page"]') !== null;
 
+            item.classList.toggle('submenu-open', isActive);
+            submenu.hidden = !isActive;
+
+            trigger.setAttribute(
+                'aria-expanded',
+                String(isActive)
+            );
+
+            // Keep normal accordion behavior.
             trigger.addEventListener('click', function (event) {
                 event.preventDefault();
 

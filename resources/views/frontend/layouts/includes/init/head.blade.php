@@ -12,7 +12,7 @@
 <link rel="stylesheet" href="/css/ls/css/layerslider.css" type="text/css" />
 <link rel="stylesheet" href="/css/responsive.css" type="text/css" />
 <link rel="stylesheet" href="/css/styles.css" type="text/css" />
-<link rel="icon" type="image/png" href="/img/favicon.png">
+<link rel="icon" type="image/png" href="/img/icon.png">
 <!--[if lt IE 9]>
 <script src="http://css3-mediaqueries-js.googlecode.com/svn/trunk/css3-mediaqueries.js"></script>
 <![endif]-->
