@@ -13,15 +13,46 @@ class EnsureActiveMembership
         Request $request,
         Closure $next
     ): Response {
-        $hasMembership = DB::table('membership_plan_registered_users')
-            ->where('user_id', $request->user()->id)
-            ->where('status', 1)
+        if (!$request->user()) {
+            abort(401);
+        }
+
+        $hasActiveMembership = DB::table(
+            'membership_plan_registered_users as registrations'
+        )
+            ->join(
+                'membership_plans as plans',
+                'registrations.membership_plan_id',
+                '=',
+                'plans.id'
+            )
+            ->where('registrations.user_id', $request->user()->id)
+            ->where('registrations.status', 1)
+            ->where('plans.is_active', true)
+            ->where(function ($query) {
+                $query->whereNull('registrations.starts_at')
+                    ->orWhere('registrations.starts_at', '<=', now());
+            })
+            ->where(function ($query) {
+                $query->whereNull('registrations.expires_at')
+                    ->orWhere('registrations.expires_at', '>', now());
+            })
             ->exists();
 
-        if (!$hasMembership) {
+        if (!$hasActiveMembership) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'An active ZeitOps membership is required.',
+                ], 403);
+            }
+
             return redirect()
                 ->route('panel.dashboard')
-                ->with('error', 'An active membership is required.');
+                ->with(
+                    'error',
+                    'An active membership is required to create websites.'
+                );
         }
 
         return $next($request);
