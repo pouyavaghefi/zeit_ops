@@ -401,4 +401,17 @@ class WebsiteController extends Controller
         return view('panel.websites.setup', compact('website', 'server'));
     }
 
+    public function start(int $website)
+    {
+        // Validate ownership and authorization.
+        // Validate installation plan approval.
+        // Dispatch the provisioning job.
+    }
+
+    public function status(int $website)
+    {
+        // Validate website ownership.
+        // Return actual provisioning progress.
+    }
+
 }

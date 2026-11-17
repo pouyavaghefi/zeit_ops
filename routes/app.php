@@ -5,6 +5,8 @@ use App\Http\Controllers\Panel\DashboardController;
 use App\Http\Controllers\Panel\ServerController;
 use App\Http\Controllers\Panel\ActivityController;
 use App\Http\Controllers\Panel\WebsiteController;
+use App\Http\Controllers\Panel\WebsiteProvisioningController;
+
 
 Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () {
 
@@ -32,28 +34,65 @@ Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () 
         ->name('websites.')
         ->group(function () {
 
-            Route::middleware('active.membership')->group(function () {
+            // =====================================
+            // VIEW ALL WEBSITES
+            // =====================================
 
-                Route::get('/create', [
-                    WebsiteController::class,
-                    'create'
-                ])->name('create');
+            Route::get('/all', [
+                WebsiteController::class,
+                'all'
+            ])->name('all');
 
-                Route::post('/', [
-                    WebsiteController::class,
-                    'store'
-                ])->name('store');
+            // =====================================
+            // WEBSITE SETUP PAGE
+            // =====================================
 
-                Route::get('/all', [
-                    WebsiteController::class,
-                    'all'
-                ])->name('all');
+            Route::get('/{website}/setup', [
+                WebsiteController::class,
+                'setup'
+            ])
+                ->whereNumber('website')
+                ->name('setup');
 
-                Route::get('/{website}/setup', [WebsiteController::class, 'setup'])
-                    ->whereNumber('website')
-                    ->name('setup');
+            // =====================================
+            // VIEW PROVISIONING PROGRESS
+            // =====================================
 
-            });
+            Route::get('/{website}/provision/status', [
+                WebsiteProvisioningController::class,
+                'status'
+            ])
+                ->whereNumber('website')
+                ->name('provision.status');
+
+            // =====================================
+            // ACTIVE MEMBERSHIP REQUIRED
+            // =====================================
+
+            Route::middleware('active.membership')
+                ->group(function () {
+
+                    // Add New Website
+                    Route::get('/create', [
+                        WebsiteController::class,
+                        'create'
+                    ])->name('create');
+
+                    // Save Website
+                    Route::post('/', [
+                        WebsiteController::class,
+                        'store'
+                    ])->name('store');
+
+                    // Start VPS Provisioning
+                    Route::post('/{website}/provision', [
+                        WebsiteProvisioningController::class,
+                        'start'
+                    ])
+                        ->whereNumber('website')
+                        ->name('provision.start');
+
+                });
 
         });
 
