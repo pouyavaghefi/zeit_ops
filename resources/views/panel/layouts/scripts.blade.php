@@ -210,3 +210,27 @@
     });
 
 </script>
+
+{{-- SweetAlert2 --}}
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+{{-- Membership Notification --}}
+@if(session('membership_error'))
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            Swal.fire({
+                icon: 'warning',
+                title: 'Membership Required',
+                text: @json(session('membership_error')),
+                confirmButtonText: 'Got it',
+                confirmButtonColor: '#3468F6',
+                background: '#ffffff',
+                color: '#26354b',
+                customClass: {
+                    popup: 'zeitops-membership-alert'
+                }
+            });
+        });
+    </script>
+@endif
+

@@ -50,8 +50,8 @@ class EnsureActiveMembership
             return redirect()
                 ->route('panel.dashboard')
                 ->with(
-                    'error',
-                    'An active membership is required to create websites.'
+                    'membership_error',
+                    "You don't have an active plan yet."
                 );
         }
 
