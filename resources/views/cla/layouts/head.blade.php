@@ -7,5 +7,5 @@
     <link rel="stylesheet" type="text/css" href="/cla/css/iofrm-style.css">
     <link rel="stylesheet" type="text/css" href="/cla/css/iofrm-theme28.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-    <link rel="icon" type="image/png" href="/img/favicon.png">
+    <link rel="icon" type="image/png" href="/img/icon.png">
 </head>
