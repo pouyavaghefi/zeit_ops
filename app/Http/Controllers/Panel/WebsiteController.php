@@ -70,14 +70,26 @@ class WebsiteController extends Controller
                     continue;
                 }
 
+                $status = strtolower(
+                    (string) ($server['status'] ?? 'pending')
+                );
+
                 $servers->push([
                     'id' => $serverId,
+
                     'name' => $server['name']
                         ?? $server['server_name']
                             ?? 'Server ' . substr($serverId, 0, 8),
 
-                    'ip' => $server['ip'] ?? null,
-                    'port' => $server['port'] ?? 22,
+                    'ip' => $server['ip']
+                        ?? $server['ip_address']
+                            ?? 'Unknown IP',
+
+                    'port' => (int) ($server['port'] ?? 22),
+
+                    'status' => $status,
+
+                    'selectable' => $status === 'connected',
                 ]);
             }
         }
