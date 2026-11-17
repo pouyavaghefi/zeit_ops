@@ -225,16 +225,42 @@ Route::get('/servers/enroll/{serverId}', function (string $serverId) {
 })->middleware('auth')->name('servers.enroll');
 
 
-Route::get('/servers/check/{serverId}', function (Request $request, string $serverId) {
 
-    // ---------------------------------------------
-    // 1. Validate server ID
-    // ---------------------------------------------
-    abort_unless(Str::isUuid($serverId), 404);
+/*
+|--------------------------------------------------------------------------
+| ZeitOps — Check Registered Server SSH Connection
+|--------------------------------------------------------------------------
+|
+| Checks an existing server owned by the authenticated user.
+|
+| - Uses the server's unique Ed25519 private key
+| - Verifies the trusted SSH host fingerprint
+| - Authenticates as the zeitops Linux user
+| - Updates server.json after the check
+| - Works even after the enrollment session expires
+|
+*/
 
-    // ---------------------------------------------
-    // 2. Locate server files
-    // ---------------------------------------------
+Route::get('/servers/check/{serverId}', function (
+    \Illuminate\Http\Request $request,
+    string $serverId
+) {
+
+    // ==========================================
+    // 1. AUTHENTICATION AND SERVER ID
+    // ==========================================
+
+    abort_unless(auth()->check(), 403);
+
+    abort_unless(
+        \Illuminate\Support\Str::isUuid($serverId),
+        404
+    );
+
+    // ==========================================
+    // 2. SERVER FILE PATHS
+    // ==========================================
+
     $directory = storage_path(
         "app/private/zeitops/servers/{$serverId}"
     );
@@ -243,17 +269,34 @@ Route::get('/servers/check/{serverId}', function (Request $request, string $serv
     $privateKeyPath = $directory . '/id_ed25519';
 
     abort_unless(
-        is_file($metadataPath) && is_readable($metadataPath),
+        is_file($metadataPath) &&
+        is_readable($metadataPath),
         404,
         'Server metadata not found.'
     );
 
-    $server = json_decode(
-        file_get_contents($metadataPath),
-        true,
-        512,
-        JSON_THROW_ON_ERROR
-    );
+    // ==========================================
+    // 3. LOAD SERVER METADATA
+    // ==========================================
+
+    try {
+        $server = json_decode(
+            file_get_contents($metadataPath),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+    } catch (\Throwable $e) {
+
+        logger()->error('ZeitOps invalid server metadata', [
+            'server_id' => $serverId,
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Unable to read server metadata.',
+        ], 500);
+    }
 
     abort_unless(
         is_array($server) &&
@@ -261,70 +304,25 @@ Route::get('/servers/check/{serverId}', function (Request $request, string $serv
         404
     );
 
-    // ---------------------------------------------
-    // 3. Verify authenticated ownership and session
-    // ---------------------------------------------
-    $pending = $request->session()->get(
-        'zeitops.pending_enrollment'
-    );
-
-    abort_unless(is_array($pending), 403);
-
-    $sessionToken = $pending['token'] ?? null;
-    $createdAt = (int) ($pending['created_at'] ?? 0);
-
-    $age = now()->timestamp - $createdAt;
-
-    $expectedHash = $server['enrollment_token_hash'] ?? null;
-
-    $ttl = defined('ZEITOPS_ENROLLMENT_TTL')
-        ? ZEITOPS_ENROLLMENT_TTL
-        : 7200;
+    // ==========================================
+    // 4. VERIFY SERVER OWNERSHIP
+    // ==========================================
 
     abort_unless(
-        ($pending['server_id'] ?? null) === $serverId &&
-        is_string($sessionToken) &&
-        $sessionToken !== '' &&
-        $createdAt > 0 &&
-        $age >= 0 &&
-        $age <= $ttl &&
-        auth()->check() &&
-        (int) ($server['user_id'] ?? 0) === (int) auth()->id() &&
-        is_string($expectedHash) &&
-        $expectedHash !== '' &&
-        hash_equals(
-            $expectedHash,
-            hash('sha256', $sessionToken)
-        ),
+        isset($server['user_id']) &&
+        (string) $server['user_id'] ===
+        (string) auth()->id(),
         403,
-        'Enrollment access denied.'
+        'You do not own this server.'
     );
 
-    // ---------------------------------------------
-    // 4. Verify enrollment token from request
-    // ---------------------------------------------
-    $providedToken = $request->header(
-        'X-Enrollment-Token',
-        ''
-    );
+    // ==========================================
+    // 5. SERVER CONNECTION SETTINGS
+    // ==========================================
 
-    abort_unless(
-        is_string($providedToken) &&
-        $providedToken !== '' &&
-        hash_equals($sessionToken, $providedToken) &&
-        hash_equals(
-            $expectedHash,
-            hash('sha256', $providedToken)
-        ),
-        403,
-        'Invalid or missing enrollment token.'
-    );
-
-    // ---------------------------------------------
-    // 5. Server configuration
-    // ---------------------------------------------
     $ip = $server['ip'] ?? '';
     $port = (int) ($server['port'] ?? 22);
+
     $sshUser = 'zeitops';
 
     $sshStatus = [
@@ -332,12 +330,13 @@ Route::get('/servers/check/{serverId}', function (Request $request, string $serv
         'message' => 'Connection not checked',
     ];
 
-    // ---------------------------------------------
-    // 6. SSH connection test
-    // ---------------------------------------------
+    // ==========================================
+    // 6. VERIFY SSH CONNECTION
+    // ==========================================
+
     try {
 
-        // Validate public IPv4 address
+        // Require a public IPv4 address.
         if (!filter_var(
             $ip,
             FILTER_VALIDATE_IP,
@@ -345,62 +344,82 @@ Route::get('/servers/check/{serverId}', function (Request $request, string $serv
             FILTER_FLAG_NO_PRIV_RANGE |
             FILTER_FLAG_NO_RES_RANGE
         )) {
-            throw new RuntimeException(
+            throw new \RuntimeException(
                 'A valid public server IP is required.'
             );
         }
 
-        // Validate SSH port
+        // Validate SSH port.
         if ($port < 1 || $port > 65535) {
-            throw new RuntimeException(
+            throw new \RuntimeException(
                 'Invalid SSH port.'
             );
         }
 
-        // Check private key
-        if (!is_file($privateKeyPath) ||
-            !is_readable($privateKeyPath)) {
-            throw new RuntimeException(
+        // Check dedicated private key.
+        if (
+            !is_file($privateKeyPath) ||
+            !is_readable($privateKeyPath)
+        ) {
+            throw new \RuntimeException(
                 'ZeitOps SSH private key is not readable.'
             );
         }
 
-        // Require verified host fingerprint
-        $trustedFingerprint = $server['host_fingerprint'] ?? null;
+        // Require a previously verified fingerprint.
+        $trustedFingerprint = $server['host_fingerprint']
+            ?? null;
 
-        if (!is_string($trustedFingerprint) ||
-            $trustedFingerprint === '') {
-            throw new RuntimeException(
+        if (
+            !is_string($trustedFingerprint) ||
+            $trustedFingerprint === ''
+        ) {
+            throw new \RuntimeException(
                 'Server host fingerprint has not been verified.'
             );
         }
 
-        // Load dedicated SSH private key
-        $key = PublicKeyLoader::loadPrivateKey(
+        // ======================================
+        // LOAD DEDICATED SSH PRIVATE KEY
+        // ======================================
+
+        $key = \phpseclib3\Crypt\PublicKeyLoader::loadPrivateKey(
             file_get_contents($privateKeyPath)
         );
 
-        // Connect to remote server
-        $ssh = new SSH2($ip, $port, 5);
+        // ======================================
+        // CONNECT TO SERVER
+        // ======================================
+
+        $ssh = new \phpseclib3\Net\SSH2(
+            $ip,
+            $port,
+            5
+        );
 
         $ssh->setPreferredAlgorithms([
             'hostkey' => ['ssh-ed25519'],
         ]);
 
-        // Retrieve remote SSH host key
+        // ======================================
+        // VERIFY SSH HOST IDENTITY
+        // ======================================
+
         $hostKey = $ssh->getServerPublicHostKey();
 
         if (!$hostKey) {
-            throw new RuntimeException(
+            throw new \RuntimeException(
                 'Unable to retrieve the SSH host key.'
             );
         }
 
-        // Parse host key
-        $parts = preg_split('/\s+/', trim($hostKey));
+        $parts = preg_split(
+            '/\s+/',
+            trim($hostKey)
+        );
 
         if (($parts[0] ?? '') !== 'ssh-ed25519') {
-            throw new RuntimeException(
+            throw new \RuntimeException(
                 'Unexpected SSH host key type.'
             );
         }
@@ -411,12 +430,11 @@ Route::get('/servers/check/{serverId}', function (Request $request, string $serv
         );
 
         if ($keyBlob === false) {
-            throw new RuntimeException(
+            throw new \RuntimeException(
                 'Invalid SSH host key.'
             );
         }
 
-        // Calculate SHA256 fingerprint
         $fingerprint = 'SHA256:' . rtrim(
                 base64_encode(
                     hash('sha256', $keyBlob, true)
@@ -424,38 +442,46 @@ Route::get('/servers/check/{serverId}', function (Request $request, string $serv
                 '='
             );
 
-        // Verify remote server identity
         if (!hash_equals(
             $trustedFingerprint,
             $fingerprint
         )) {
-            throw new RuntimeException(
+            throw new \RuntimeException(
                 'SSH host fingerprint mismatch.'
             );
         }
 
-        // Authenticate using ZeitOps user
+        // ======================================
+        // AUTHENTICATE USING PRIVATE KEY
+        // ======================================
+
         if (!$ssh->login($sshUser, $key)) {
-            throw new RuntimeException(
+            throw new \RuntimeException(
                 'SSH authentication failed.'
             );
         }
 
-        // Execute harmless test command
-        $result = trim($ssh->exec('whoami'));
+        // ======================================
+        // VERIFY REMOTE USER
+        // ======================================
+
+        $result = trim(
+            (string) $ssh->exec('whoami')
+        );
 
         if ($result !== $sshUser) {
-            throw new RuntimeException(
+            throw new \RuntimeException(
                 'SSH connected, but returned an unexpected user.'
             );
         }
 
-        // -----------------------------------------
-        // 7. SSH authentication successful
-        // -----------------------------------------
+        // ======================================
+        // SSH AUTHENTICATION SUCCESSFUL
+        // ======================================
+
         $sshStatus = [
             'ok' => true,
-            'message' => 'SSH authentication successful',
+            'message' => 'SSH authentication successful.',
         ];
 
         logger()->info('ZeitOps SSH connection successful', [
@@ -466,7 +492,7 @@ Route::get('/servers/check/{serverId}', function (Request $request, string $serv
 
     } catch (\Throwable $e) {
 
-        logger()->warning('ZeitOps SSH connection check failed', [
+        logger()->warning('ZeitOps SSH connection failed', [
             'server_id' => $serverId,
             'user_id' => auth()->id(),
             'error' => $e->getMessage(),
@@ -474,42 +500,47 @@ Route::get('/servers/check/{serverId}', function (Request $request, string $serv
 
         $sshStatus = [
             'ok' => false,
-            'message' => 'SSH connection check failed: ' . $e->getMessage(),
+            'message' => 'SSH connection check failed: '
+                . $e->getMessage(),
         ];
     }
 
-    // ---------------------------------------------
-    // 8. Prepare persistent server metadata
-    // ---------------------------------------------
+    // ==========================================
+    // 7. UPDATE SERVER STATUS
+    // ==========================================
+
     $now = now()->toIso8601String();
 
     $server['last_checked_at'] = $now;
 
-    if ($sshStatus['ok'] === true) {
+    if ($sshStatus['ok']) {
 
-        // Save successful connection
         $server['status'] = 'connected';
+
         $server['last_connected_at'] = $now;
+
         $server['last_error'] = null;
 
     } else {
 
-        // Save failed check
         $server['status'] = 'failed';
+
         $server['last_error'] = $sshStatus['message'];
 
-        // Preserve last_connected_at if a
-        // successful connection existed previously.
+        // Preserve the last successful SSH timestamp.
     }
 
-    // ---------------------------------------------
-    // 9. Persist server metadata atomically
-    // ---------------------------------------------
+    // ==========================================
+    // 8. SAVE SERVER METADATA ATOMICALLY
+    // ==========================================
+
     try {
 
         $updatedJson = json_encode(
             $server,
-            JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR
+            JSON_PRETTY_PRINT |
+            JSON_UNESCAPED_SLASHES |
+            JSON_THROW_ON_ERROR
         );
 
         $tempPath = tempnam(
@@ -518,7 +549,7 @@ Route::get('/servers/check/{serverId}', function (Request $request, string $serv
         );
 
         if ($tempPath === false) {
-            throw new RuntimeException(
+            throw new \RuntimeException(
                 'Unable to create metadata temporary file.'
             );
         }
@@ -530,7 +561,7 @@ Route::get('/servers/check/{serverId}', function (Request $request, string $serv
                     $updatedJson,
                     LOCK_EX
                 ) === false) {
-                throw new RuntimeException(
+                throw new \RuntimeException(
                     'Unable to write server metadata.'
                 );
             }
@@ -538,7 +569,7 @@ Route::get('/servers/check/{serverId}', function (Request $request, string $serv
             chmod($tempPath, 0600);
 
             if (!rename($tempPath, $metadataPath)) {
-                throw new RuntimeException(
+                throw new \RuntimeException(
                     'Unable to update server metadata.'
                 );
             }
@@ -552,21 +583,24 @@ Route::get('/servers/check/{serverId}', function (Request $request, string $serv
 
     } catch (\Throwable $e) {
 
-        logger()->error('ZeitOps metadata persistence failed', [
+        logger()->error('ZeitOps metadata save failed', [
             'server_id' => $serverId,
             'error' => $e->getMessage(),
         ]);
 
         return response()->json([
             'success' => false,
-            'message' => 'Server check completed, but its status could not be saved.',
+            'message' =>
+                'SSH check completed, but server status could not be saved.',
         ], 500);
     }
 
-    // ---------------------------------------------
-    // 10. Return JSON response
-    // ---------------------------------------------
+    // ==========================================
+    // 9. RETURN RESPONSE
+    // ==========================================
+
     return response()->json([
+
         'success' => $sshStatus['ok'],
 
         'server' => [
@@ -575,13 +609,16 @@ Route::get('/servers/check/{serverId}', function (Request $request, string $serv
             'port' => $port,
             'username' => $sshUser,
             'status' => $server['status'],
-            'last_checked_at' => $server['last_checked_at'],
-            'last_connected_at' => $server['last_connected_at'] ?? null,
+            'last_checked_at' =>
+                $server['last_checked_at'],
+            'last_connected_at' =>
+                $server['last_connected_at'] ?? null,
         ],
 
         'ssh' => $sshStatus,
 
         'message' => $sshStatus['message'],
+
     ]);
 
 })->middleware(['auth', 'throttle:5,1'])
