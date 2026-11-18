@@ -81,6 +81,9 @@
 
 
         {{-- ZeitOps User Profile --}}
+
+
+
         @auth
             @php
                 $user = auth()->user();
@@ -91,109 +94,388 @@
                     ->filter()
                     ->take(2)
                     ->map(fn ($part) => strtoupper(mb_substr($part, 0, 1)))
-                    ->implode('');
+                    ->implode('') ?: 'U';
 
-                $initials = $initials ?: 'U';
+                /*
+                |--------------------------------------------------------------------------
+                | Workspace Data (Frontend Only)
+                |--------------------------------------------------------------------------
+                */
+
+                $personalWorkspace = [
+                    'id' => 'personal',
+                    'name' => 'Personal Workspace',
+                    'type' => 'personal',
+                    'description' => 'Your private infrastructure',
+                    'role' => 'Owner',
+                ];
+
+                // No teams created yet
+                $teams = null;
+
+                /*
+                |--------------------------------------------------------------------------
+                | Team Workspace Quota
+                |--------------------------------------------------------------------------
+                */
+
+                $maxTeams = 5;
+
+                $usedTeams = count($teams ?? []);
+
+                $remainingTeams = max(0, $maxTeams - $usedTeams);
+
+                $usagePercentage = $maxTeams > 0
+                    ? min(100, ($usedTeams / $maxTeams) * 100)
+                    : 0;
+
+                $totalWorkspaces = 1 + $usedTeams;
             @endphp
 
             <div class="dropdown zeitops-profile">
 
-                {{-- Profile Toggle --}}
+                {{-- =====================================
+                     PROFILE TOGGLE
+                ===================================== --}}
+
                 <button
                     type="button"
-                    class="profile-toggle"
+                    class="zp-toggle"
                     data-bs-toggle="dropdown"
+                    data-bs-auto-close="outside"
                     aria-expanded="false"
-                    aria-label="Open account menu"
+                    aria-label="Open account and workspace menu"
                 >
-            <span class="profile-avatar">
+            <span class="zp-avatar">
                 {{ $initials }}
             </span>
+
+                    <i class="fas fa-chevron-down zp-chevron"></i>
                 </button>
 
-                {{-- Dropdown --}}
-                <ul class="dropdown-menu dropdown-menu-end shadow profile-dropdown">
+                {{-- =====================================
+                     PROFILE DROPDOWN
+                ===================================== --}}
 
-                    {{-- User Information --}}
-                    <li>
-                        <div class="profile-dropdown-header">
-                    <span class="profile-avatar profile-avatar-lg">
-                        {{ $initials }}
-                    </span>
+                <div class="dropdown-menu dropdown-menu-end zp-dropdown">
 
-                            <div class="profile-user-info">
-                                <h6 class="mb-1">
-                                    {{ $user->name }}
-                                </h6>
+                    {{-- =====================================
+                         ACCOUNT HEADER
+                    ===================================== --}}
 
-                                <small class="text-muted">
-                                    {{ $user->email }}
-                                </small>
-                            </div>
+                    <div class="zp-header">
+
+                        <div class="zp-header-avatar">
+                            {{ $initials }}
                         </div>
-                    </li>
 
-                    <li>
-                        <hr class="dropdown-divider">
-                    </li>
+                        <div class="zp-header-info">
 
-                    {{-- Dashboard --}}
-                    <li>
-                        <a
-                            class="dropdown-item"
-                            href="{{ url('/panel/dashboard') }}"
-                        >
-                            <i class="fas fa-tachometer-alt"></i>
-                            Dashboard
-                        </a>
-                    </li>
+                            <div class="zp-header-name">
+                                {{ $user->name }}
+                            </div>
 
-                    {{-- My Servers --}}
-                    <li>
-                        <a
-                            class="dropdown-item"
-                            href="{{ url('/panel/dashboard') }}"
-                        >
-                            <i class="fas fa-server"></i>
-                            My Servers
-                        </a>
-                    </li>
+                            <div class="zp-header-email">
+                                {{ $user->email }}
+                            </div>
 
-                    {{-- Account information --}}
-                    <li>
-                        <div class="dropdown-item-text profile-account-info">
-                            <i class="fas fa-check-circle text-success"></i>
-                            <span>
+                            <span class="zp-verified {{ $user->email_verified_at ? '' : 'zp-unverified' }}">
+
+                        <i class="fas {{ $user->email_verified_at
+                            ? 'fa-check-circle'
+                            : 'fa-exclamation-circle' }}">
+                        </i>
+
                         {{ $user->email_verified_at
                             ? 'Verified Account'
                             : 'Email Not Verified' }}
+
                     </span>
+
                         </div>
-                    </li>
 
-                    <li>
-                        <hr class="dropdown-divider">
-                    </li>
+                    </div>
 
-                    {{-- Logout --}}
-                    <li>
-                        <form method="POST" action="{{ route('logout') }}">
+                    <div class="zp-divider"></div>
+
+                    {{-- =====================================
+                         WORKSPACE SWITCHER
+                    ===================================== --}}
+
+                    <div class="zp-workspaces">
+
+                        <div class="zp-section-heading">
+
+                            <span>WORKSPACES</span>
+
+                            <span class="zp-workspace-count">
+                        {{ $totalWorkspaces }}
+                    </span>
+
+                        </div>
+
+                        {{-- PERSONAL WORKSPACE --}}
+
+                        <div class="zp-workspace-group-label">
+                            PERSONAL
+                        </div>
+
+                        <button
+                            type="button"
+                            class="zp-workspace active"
+                            data-workspace-id="{{ $personalWorkspace['id'] }}"
+                            data-workspace-name="{{ $personalWorkspace['name'] }}"
+                            data-workspace-type="personal"
+                            aria-pressed="true"
+                        >
+
+                    <span class="zp-workspace-avatar zp-personal">
+                        <i class="fas fa-user"></i>
+                    </span>
+
+                            <span class="zp-workspace-details">
+
+                        <strong>
+                            {{ $personalWorkspace['name'] }}
+                        </strong>
+
+                        <small>
+                            {{ $personalWorkspace['description'] }}
+                        </small>
+
+                    </span>
+
+                            <span class="zp-workspace-check">
+                        <i class="fas fa-check-circle"></i>
+                    </span>
+
+                        </button>
+
+                        {{-- =====================================
+                             TEAM WORKSPACES
+                        ===================================== --}}
+
+                        @if(!empty($teams))
+
+                            <div class="zp-workspace-group-label zp-team-label">
+                                TEAMS
+                            </div>
+
+                            @foreach($teams as $team)
+
+                                <button
+                                    type="button"
+                                    class="zp-workspace"
+                                    data-workspace-id="{{ $team['id'] }}"
+                                    data-workspace-name="{{ $team['name'] }}"
+                                    data-workspace-type="team"
+                                    aria-pressed="false"
+                                >
+
+                            <span class="zp-workspace-avatar zp-team">
+                                <i class="fas fa-users"></i>
+                            </span>
+
+                                    <span class="zp-workspace-details">
+
+                                <strong>
+                                    {{ $team['name'] }}
+                                </strong>
+
+                                <small>
+
+                                    {{ $team['members'] }} members
+
+                                    <span class="zp-dot">·</span>
+
+                                    {{ $team['role'] }}
+
+                                </small>
+
+                            </span>
+
+                                    <span class="zp-workspace-check">
+                                <i class="fas fa-check-circle"></i>
+                            </span>
+
+                                </button>
+
+                            @endforeach
+
+                        @endif
+
+                    </div>
+
+                    <div class="zp-divider"></div>
+
+                    {{-- =====================================
+                         ACCOUNT NAVIGATION
+                    ===================================== --}}
+
+                    <div class="zp-menu">
+
+                        {{-- Dashboard --}}
+
+                        <a
+                            href="{{ url('/panel/dashboard') }}"
+                            class="zp-menu-link"
+                        >
+                            <i class="fas fa-tachometer-alt"></i>
+                            <span>Dashboard</span>
+                        </a>
+
+                        {{-- Profile Settings --}}
+
+                        <a
+                            href="{{ url('/panel/profile-settings') }}"
+                            class="zp-menu-link"
+                        >
+                            <i class="fas fa-user-cog"></i>
+                            <span>Profile Settings</span>
+                        </a>
+
+                    </div>
+
+                    <div class="zp-divider"></div>
+
+                    {{-- =====================================
+                         TEAM WORKSPACE QUOTA
+                    ===================================== --}}
+
+                    <div class="zp-team-quota">
+
+                        {{-- Header --}}
+
+                        <div class="zp-team-quota-header">
+
+                            <div class="zp-team-quota-icon">
+                                <i class="fas fa-users"></i>
+                            </div>
+
+                            <div class="zp-team-quota-title">
+                                <strong>Team Workspace Quota</strong>
+                            </div>
+
+                            <span class="zp-team-quota-count">
+                        {{ $usedTeams }} of {{ $maxTeams }}
+                    </span>
+
+                        </div>
+
+                        {{-- Progress Bar --}}
+
+                        <div
+                            class="zp-team-quota-progress"
+                            role="progressbar"
+                            aria-label="Team workspace usage"
+                            aria-valuenow="{{ $usedTeams }}"
+                            aria-valuemin="0"
+                            aria-valuemax="{{ $maxTeams }}"
+                        >
+
+                            <div
+                                class="zp-team-quota-progress-fill"
+                                style="width: {{ $usagePercentage }}%"
+                            ></div>
+
+                        </div>
+
+                        {{-- Quota Details --}}
+
+                        <div class="zp-team-quota-footer">
+
+                    <span class="zp-team-quota-description">
+
+                        You have created
+                        {{ $usedTeams }} of {{ $maxTeams }}
+                        available team workspaces.
+
+                    </span>
+
+                            <span class="zp-team-quota-remaining">
+                        {{ $remainingTeams }} remaining
+                    </span>
+
+                        </div>
+
+                    </div>
+
+                    {{-- =====================================
+                         WORKSPACE ACTIONS
+                    ===================================== --}}
+
+                    <div class="zp-team-actions">
+
+                        {{-- Manage Workspaces --}}
+
+                        <button
+                            type="button"
+                            class="zp-manage-workspaces"
+                            data-zp-placeholder="Manage Workspaces"
+                        >
+
+                            <i class="fas fa-cog"></i>
+
+                            <span>
+                        Manage Workspaces
+                    </span>
+
+                        </button>
+
+                        {{-- Create New Workspace --}}
+
+                        <button
+                            type="button"
+                            class="zp-create-workspace"
+                            data-zp-placeholder="Create New Workspace"
+                            @disabled($remainingTeams <= 0)
+                        >
+
+                            <i class="fas fa-plus"></i>
+
+                            <span>
+                        Create New Workspace
+                    </span>
+
+                        </button>
+
+                    </div>
+
+                    <div class="zp-divider"></div>
+
+                    {{-- =====================================
+                         LOGOUT
+                    ===================================== --}}
+
+                    <div class="zp-footer">
+
+                        <form
+                            method="POST"
+                            action="{{ route('logout') }}"
+                        >
                             @csrf
 
                             <button
                                 type="submit"
-                                class="dropdown-item profile-logout"
+                                class="zp-logout"
                             >
-                                <i class="fas fa-sign-out-alt"></i>
-                                Sign Out
-                            </button>
-                        </form>
-                    </li>
 
-                </ul>
+                                <i class="fas fa-sign-out-alt"></i>
+
+                                <span>
+                            Sign Out
+                        </span>
+
+                            </button>
+
+                        </form>
+
+                    </div>
+
+                </div>
+
             </div>
         @endauth
-
     </div>
 </div>
 

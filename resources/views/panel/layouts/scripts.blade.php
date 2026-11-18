@@ -234,3 +234,72 @@
     </script>
 @endif
 
+<script>
+
+    document.addEventListener("DOMContentLoaded", function () {
+
+        const profile = document.querySelector(".zeitops-profile");
+
+        if (!profile) return;
+
+        const workspaces = profile.querySelectorAll(".zp-workspace");
+
+        const storageKey = "zeitops-demo-active-workspace";
+
+        function selectWorkspace(workspaceId) {
+
+            const selectedWorkspace = Array.from(workspaces).find(
+                workspace => workspace.dataset.workspaceId === workspaceId
+            );
+
+            if (!selectedWorkspace) return;
+
+            workspaces.forEach(workspace => {
+
+                const isActive = workspace === selectedWorkspace;
+
+                workspace.classList.toggle("active", isActive);
+
+                workspace.setAttribute(
+                    "aria-pressed",
+                    String(isActive)
+                );
+
+            });
+
+            sessionStorage.setItem(storageKey, workspaceId);
+        }
+
+        // Workspace switching
+        workspaces.forEach(workspace => {
+
+            workspace.addEventListener("click", function () {
+
+                selectWorkspace(this.dataset.workspaceId);
+
+            });
+
+        });
+
+        // Restore selection
+        const savedWorkspace = sessionStorage.getItem(storageKey);
+
+        selectWorkspace(
+            savedWorkspace || "personal"
+        );
+
+        // Frontend placeholder actions
+        profile.querySelectorAll("[data-zp-placeholder]").forEach(button => {
+
+            button.addEventListener("click", function (event) {
+                event.preventDefault();
+            });
+
+        });
+
+    });
+
+</script>
+
+@stack('js-scripts')
+

@@ -6,9 +6,25 @@ use App\Http\Controllers\Panel\ServerController;
 use App\Http\Controllers\Panel\ActivityController;
 use App\Http\Controllers\Panel\WebsiteController;
 use App\Http\Controllers\Panel\WebsiteProvisioningController;
+use App\Http\Controllers\Panel\ProfileSettingsController;
 
 
 Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () {
+
+    Route::get('/profile-settings', [
+        ProfileSettingsController::class,
+        'index'
+    ])->name('profile-settings');
+
+    Route::put('/profile-settings', [
+        ProfileSettingsController::class,
+        'update'
+    ])->name('profile-settings.update');
+
+    Route::put('/profile-settings/password', [
+        ProfileSettingsController::class,
+        'updatePassword'
+    ])->name('profile-settings.password');
 
     Route::get('/dashboard', [DashboardController::class, 'showDashboard'])->name('dashboard');
 
