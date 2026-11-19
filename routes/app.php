@@ -7,6 +7,7 @@ use App\Http\Controllers\Panel\ActivityController;
 use App\Http\Controllers\Panel\WebsiteController;
 use App\Http\Controllers\Panel\WebsiteProvisioningController;
 use App\Http\Controllers\Panel\ProfileSettingsController;
+use App\Http\Controllers\Panel\ServerBootstrapController;
 
 
 Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () {
@@ -76,6 +77,14 @@ Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () 
                     'password.confirm',
                     'throttle:3,10',
                 ])
+                ->name('bootstrap');
+
+            Route::post('/{serverId}/bootstrap', [
+                ServerBootstrapController::class,
+                'store'
+            ])
+                ->whereUuid('serverId')
+                ->middleware(['password.confirm', 'throttle:3,10'])
                 ->name('bootstrap');
         });
 

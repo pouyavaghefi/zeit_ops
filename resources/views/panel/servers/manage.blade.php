@@ -499,19 +499,31 @@
                             </div>
 
                             <div class="mb-3">
-                                <label for="zo-admin-password" class="form-label zo-bootstrap-label">
-                                    One-Time Administrator SSH Password
+                                <label for="zo-admin-key" class="form-label zo-bootstrap-label">
+                                    Administrator SSH Private Key
                                 </label>
-                                <input id="zo-admin-password" type="password" name="admin_password"
-                                       class="form-control zo-bootstrap-input @error('admin_password') is-invalid @enderror"
-                                       autocomplete="new-password" required>
-                                @error('admin_password')
+                                <textarea id="zo-admin-key" name="admin_private_key"
+                                          class="form-control zo-bootstrap-input @error('admin_private_key') is-invalid @enderror"
+                                          rows="8" maxlength="20000" spellcheck="false"
+                                          autocomplete="off" required
+                                          placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea>
+                                @error('admin_private_key')
                                 <div class="invalid-feedback">{{ $message }}</div>
                                 @enderror
                                 <div class="zo-bootstrap-help mt-2">
-                                    Used for this request; never saved in server metadata. Password-based SSH
-                                    administrator login must be enabled for this method.
+                                    Paste an existing administrator SSH private key that the VPS trusts.
+                                    This key is used only for bootstrap; it is not saved in server.json.
+                                    Never paste it into chat or logs.
                                 </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="zo-admin-passphrase" class="form-label zo-bootstrap-label">
+                                    Key Passphrase (if encrypted)
+                                </label>
+                                <input id="zo-admin-passphrase" type="password"
+                                       name="admin_key_passphrase" class="form-control zo-bootstrap-input"
+                                       autocomplete="off" maxlength="4096">
                             </div>
 
                             <div class="form-check mb-3">
