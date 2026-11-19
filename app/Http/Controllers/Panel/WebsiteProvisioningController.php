@@ -33,9 +33,12 @@ class WebsiteProvisioningController extends Controller
             ->where('user_id', $request->user()->id)
             ->findOrFail($website);
 
+        $runtimeVersion = $website->runtime_version
+            ?: $website->php_version;
+
         if (!LampRecipe::supported(
             (string) $website->stack,
-            (string) $website->runtime_version
+            (string) $runtimeVersion
         )) {
             return response()->json([
                 'message' => 'Automated installation currently supports only LAMP with PHP 8.3 on Ubuntu 24.04.',

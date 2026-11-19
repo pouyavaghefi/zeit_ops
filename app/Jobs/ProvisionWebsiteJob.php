@@ -51,7 +51,7 @@ class ProvisionWebsiteJob implements ShouldQueue
             $website->server_id !== $run->server_id ||
             !LampRecipe::supported(
                 $website->stack,
-                (string) $website->runtime_version
+                (string) ($website->runtime_version ?: $website->php_version)
             )
         ) {
             $this->recordFailure(
