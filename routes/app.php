@@ -86,6 +86,14 @@ Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () 
                 ->whereUuid('serverId')
                 ->middleware(['password.confirm', 'throttle:3,10'])
                 ->name('bootstrap');
+
+            Route::post('/{serverId}/bootstrap-key', [
+                ServerBootstrapController::class,
+                'generateKey'
+            ])
+                ->whereUuid('serverId')
+                ->middleware(['password.confirm', 'throttle:3,10'])
+                ->name('bootstrap-key.generate');
         });
 
 

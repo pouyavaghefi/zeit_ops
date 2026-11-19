@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use phpseclib3\Net\SSH2;
+use phpseclib3\Crypt\PublicKeyLoader;
 use RuntimeException;
 use Throwable;
 
@@ -17,7 +18,7 @@ use Throwable;
  */
 final class ServerBootstrapService
 {
-    private const VERSION = '1.0.1';
+    private const VERSION = '1.0.2';
     private const HELPER = '/usr/local/libexec/zeitops/provision';
     private const MANAGEMENT_USER = 'zeitops';
 
@@ -27,12 +28,43 @@ final class ServerBootstrapService
         string $adminUsername,
         string $adminPassword
     ): array {
+        return $this->bootstrapWithAuthentication(
+            $serverId, $ownerId, $adminUsername, $adminPassword, 'password'
+        );
+    }
+
+    /**
+     * Accept an administrator private key only for this request.
+     * This key is NOT the per-server ZeitOps management key.
+     */
+    public function bootstrapWithKey(
+        string $serverId,
+        int $ownerId,
+        string $adminUsername,
+        string $privateKey,
+        ?string $passphrase = null
+    ): array {
+        return $this->bootstrapWithAuthentication(
+            $serverId, $ownerId, $adminUsername,
+            $privateKey, 'key', $passphrase
+        );
+    }
+
+    private function bootstrapWithAuthentication(
+        string $serverId,
+        int $ownerId,
+        string $adminUsername,
+        string $credential,
+        string $authenticationMethod,
+        ?string $passphrase = null
+    ): array {
         if (!Str::isUuid($serverId)) {
             throw new RuntimeException('Invalid server ID.');
         }
 
         if (!preg_match('/^[a-z_][a-z0-9_-]{0,31}$/', $adminUsername)
-            || $adminPassword === '') {
+            || $credential === ''
+            || !in_array($authenticationMethod, ['password', 'key'], true)) {
             throw new RuntimeException('Invalid administrator credentials.');
         }
 
@@ -120,7 +152,22 @@ final class ServerBootstrapService
                 }
 
                 $phase = 'administrator_authentication';
-                if (!$ssh->login($adminUsername, $adminPassword)) {
+                if ($authenticationMethod === 'key') {
+                    try {
+                        // Never log the key, passphrase, or parser exception.
+                        $key = PublicKeyLoader::loadPrivateKey(
+                            $credential, $passphrase ?: false
+                        );
+                    } catch (Throwable $e) {
+                        throw new RuntimeException(
+                            'The administrator SSH private key or passphrase is invalid.'
+                        );
+                    }
+                    $authenticated = $ssh->login($adminUsername, $key);
+                } else {
+                    $authenticated = $ssh->login($adminUsername, $credential);
+                }
+                if (!$authenticated) {
                     throw new RuntimeException('Administrator SSH authentication failed.');
                 }
 

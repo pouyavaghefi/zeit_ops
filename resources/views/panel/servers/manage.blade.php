@@ -479,11 +479,59 @@
                             policy and verify the result. Back up your VPS and review these changes before proceeding.
                         </p>
 
+                        {{-- ALTERNATIVE: ZEITOPS-GENERATED TEMPORARY ADMINISTRATOR KEY --}}
+                        @php
+                            $generatedKeyPath = storage_path("app/private/zeitops/servers/{$serverId}/bootstrap_admin_ed25519");
+                            $generatedPublicPath = $generatedKeyPath . '.pub';
+                            $generatedKeyValid = is_file($generatedKeyPath)
+                                && is_file($generatedPublicPath)
+                                && !is_link($generatedKeyPath)
+                                && !is_link($generatedPublicPath)
+                                && time() - filemtime($generatedKeyPath) < 1800;
+                            $generatedPublicKey = $generatedKeyValid
+                                ? trim(file_get_contents($generatedPublicPath)) : null;
+                            $installKeyCommand = $generatedPublicKey
+                                ? 'umask 077; mkdir -p /root/.ssh; touch /root/.ssh/authorized_keys; chmod 700 /root/.ssh; chmod 600 /root/.ssh/authorized_keys; KEY=' . escapeshellarg($generatedPublicKey)
+                                    . '; grep -qxF -- "$KEY" /root/.ssh/authorized_keys || printf "%s\n" "$KEY" >> /root/.ssh/authorized_keys'
+                                : null;
+                        @endphp
+                        <div class="zo-feature" style="display:block; margin-bottom:24px;">
+                            <h3><i class="fas fa-key me-2"></i> Option 2 — Generate a temporary administrator key</h3>
+                            <p style="margin:8px 0 14px;">Don't want to upload your private key? ZeitOps generates a separate temporary SSH key. Authorize its public key once in your VPS provider's root console. ZeitOps removes the authorized key after a successful bootstrap.</p>
+                            @if(Route::has('panel.servers.bootstrap-key.generate'))
+                                <form method="POST" action="{{ route('panel.servers.bootstrap-key.generate', ['serverId' => $serverId]) }}">
+                                    @csrf
+                                    <button type="submit" class="zo-manage-button" style="border:0;">Generate Temporary Administrator Key</button>
+                                </form>
+                            @else
+                                <p class="text-danger">Temporary-key route is not registered.</p>
+                            @endif
+                            @if($generatedPublicKey)
+                                <label class="form-label mt-3">Generated public key (safe to share)</label>
+                                <textarea class="form-control" rows="3" readonly>{{ $generatedPublicKey }}</textarea>
+                                <label class="form-label mt-3">Run this one-time command in the VPS root web console</label>
+                                <textarea class="form-control" rows="5" readonly id="zo-root-authorization-command">{{ $installKeyCommand }}</textarea>
+                                <button type="button" class="btn btn-outline-primary mt-2" onclick="navigator.clipboard.writeText(document.getElementById('zo-root-authorization-command').value)">Copy Console Command</button>
+                                <div class="alert alert-warning mt-3">This public key expires in 30 minutes on ZeitOps. If bootstrap fails, remove the temporary key from root's authorized_keys using the VPS console. Do not put any private keys in the console command.</div>
+                                <form method="POST" action="{{ route('panel.servers.bootstrap', ['serverId' => $serverId]) }}" class="mt-3">
+                                    @csrf
+                                    <input type="hidden" name="authorization_method" value="generated_key">
+                                    <div class="form-check mb-3">
+                                        <input class="form-check-input" type="checkbox" id="zo-confirm-generated" name="confirm_bootstrap" value="1" required>
+                                        <label class="form-check-label" for="zo-confirm-generated">I authorized this key on my VPS and approve installation of the restricted management helper.</label>
+                                    </div>
+                                    <button class="zo-manage-button" type="submit" style="border:0;">Verify Key &amp; Bootstrap VPS</button>
+                                </form>
+                            @endif
+                        </div>
+
+                        <h3 class="mb-3" style="font-size:16px;">Option 1 — Use your existing administrator private key</h3>
                         <form method="POST"
                               action="{{ route('panel.servers.bootstrap', ['serverId' => $serverId]) }}"
                               autocomplete="off"
                               id="zo-bootstrap-form">
                             @csrf
+                            <input type="hidden" name="authorization_method" value="existing_key">
 
                             <div class="mb-3">
                                 <label for="zo-admin-username" class="form-label zo-bootstrap-label">
