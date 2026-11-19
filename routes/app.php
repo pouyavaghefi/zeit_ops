@@ -69,22 +69,11 @@ Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () 
             ])->name('check');
 
             Route::post('/{serverId}/bootstrap', [
-                ServerController::class,
-                'bootstrap'
-            ])
-                ->whereUuid('serverId')
-                ->middleware([
-                    'password.confirm',
-                    'throttle:3,10',
-                ])
-                ->name('bootstrap');
-
-            Route::post('/{serverId}/bootstrap', [
                 ServerBootstrapController::class,
                 'store'
             ])
                 ->whereUuid('serverId')
-                ->middleware(['password.confirm', 'throttle:3,10'])
+                ->middleware(['throttle:3,10'])
                 ->name('bootstrap');
 
             Route::post('/{serverId}/bootstrap-key', [
@@ -92,7 +81,7 @@ Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () 
                 'generateKey'
             ])
                 ->whereUuid('serverId')
-                ->middleware(['password.confirm', 'throttle:3,10'])
+                ->middleware(['throttle:3,10'])
                 ->name('bootstrap-key.generate');
         });
 
