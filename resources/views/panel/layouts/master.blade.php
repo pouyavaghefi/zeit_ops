@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     @include('panel.layouts.head')
+
 </head>
 <body>
 

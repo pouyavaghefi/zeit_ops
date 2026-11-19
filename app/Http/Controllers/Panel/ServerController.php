@@ -287,4 +287,42 @@ EOT;
             'sshStatus' => $sshStatus,
         ]);
     }
+
+
+    public function manage(string $serverId)
+    {
+        $serverPath = storage_path(
+            "app/private/zeitops/servers/{$serverId}/server.json"
+        );
+
+        if (!\Illuminate\Support\Facades\File::isFile($serverPath)) {
+            abort(404);
+        }
+
+        try {
+            $server = json_decode(
+                \Illuminate\Support\Facades\File::get($serverPath),
+                true,
+                512,
+                JSON_THROW_ON_ERROR
+            );
+        } catch (\Throwable $e) {
+            report($e);
+            abort(404);
+        }
+
+        if (
+            !is_array($server) ||
+            ($server['id'] ?? null) !== $serverId ||
+            (string) ($server['user_id'] ?? '') !== (string) auth()->id()
+        ) {
+            abort(404);
+        }
+
+        return view('panel.servers.manage', compact(
+            'server',
+            'serverId'
+        ));
+    }
+
 }

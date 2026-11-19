@@ -1,5 +1,30 @@
-
 @extends('panel.layouts.master')
+
+@push('css-styles')
+    <style>
+        .zo-server-name-link {
+            color: #1e2d47;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .zo-server-name-link i {
+            font-size: 11px;
+            color: #416bef;
+            transition: transform .2s ease;
+        }
+
+        .zo-server-name-link:hover {
+            color: #285fef;
+        }
+
+        .zo-server-name-link:hover i {
+            transform: translateX(4px);
+        }
+    </style>
+@endpush
 
 @section('wrapper')
 
@@ -678,7 +703,15 @@
                                 <div class="zo-server-details">
 
                                     <h3>
-                                        {{ $server['name'] }}
+                                        <a
+                                            href="{{ route('panel.servers.manage', [
+                                                    'serverId' => $server['id']
+                                                ]) }}"
+                                            class="zo-server-name-link"
+                                            >
+                                            {{ $server['name'] }}
+                                            <i class="fas fa-arrow-right"></i>
+                                        </a>
                                     </h3>
 
                                     <div class="zo-server-meta">
@@ -757,11 +790,21 @@
 
                             {{-- MANAGEMENT --}}
                             <div class="zo-server-actions">
-                            <span class="zo-management-pending">
-                                <i class="fas fa-tools"></i>
-                                Management coming soon
-                            </span>
-                            </div>
+                                {{-- MANAGEMENT --}}
+                                {{-- SERVER MANAGEMENT --}}
+                                <div class="zo-server-actions">
+
+                                    <a
+                                        href="{{ route('panel.servers.manage', [
+                                                'serverId' => $server['id']
+                                            ]) }}" class="zo-btn zo-btn-outline"
+                                        >
+                                        <i class="fas fa-cog"></i>
+                                        Manage Server
+                                        <i class="fas fa-arrow-right"></i>
+                                    </a>
+
+                                </div>
 
                             {{-- LAST ERROR --}}
                             @if(

@@ -34,17 +34,41 @@ Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () 
         ->name('notifications.markRead')
         ->middleware('auth');
 
-    Route::prefix('servers')->name('servers.')->group(function () {
 
-        Route::get('/add', [ServerController::class, 'add'])->name('add');
+    Route::prefix('servers')
+        ->name('servers.')
+        ->group(function () {
 
-        Route::post('/store', [ServerController::class, 'store'])->name('store');
+            Route::get('/add', [
+                ServerController::class,
+                'add'
+            ])->name('add');
 
-        Route::get('/all', [ServerController::class, 'all'])->name('all');
+            Route::post('/store', [
+                ServerController::class,
+                'store'
+            ])->name('store');
 
-        Route::get('/check/{ip}', [ServerController::class, 'check'])->name('check');
+            Route::get('/all', [
+                ServerController::class,
+                'all'
+            ])->name('all');
 
-    });
+            Route::get('/{serverId}/manage', [
+                ServerController::class,
+                'manage'
+            ])
+                ->whereUuid('serverId')
+                ->name('manage');
+
+            // Existing legacy route
+            Route::get('/check/{ip}', [
+                ServerController::class,
+                'check'
+            ])->name('check');
+
+        });
+
 
     Route::prefix('websites')
         ->name('websites.')
