@@ -42,7 +42,8 @@ final class ServerBootstrapService
         int $ownerId,
         string $adminUsername,
         string $privateKey,
-        ?string $passphrase = null
+        ?string $passphrase = null,
+        ?string $cleanupPublicKey = null
     ): array {
         return $this->bootstrapWithAuthentication(
             $serverId, $ownerId, $adminUsername,
