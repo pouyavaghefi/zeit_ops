@@ -145,13 +145,24 @@ class ServerBootstrapController extends Controller
             }
             return $redirect()->with('success', $result['message']);
         } catch (Throwable $e) {
-            Log::channel('provisioning')->error('Bootstrap authorization failed', [
-                'server_id' => $serverId,
-                'owner_id' => $request->user()->id,
-                'authorization_method' => $mode,
-                'exception_class' => get_class($e),
+            Log::channel('provisioning')->error(
+                'Bootstrap authorization failed',
+                [
+                    'server_id' => $serverId,
+                    'owner_id' => $request->user()->id,
+                    'authorization_method' => $mode,
+                    'exception_class' => get_class($e),
+                    'error_message' => $e instanceof \Error
+                        ? $e->getMessage()
+                        : 'See bootstrap phase logs',
+                    'error_file' => basename($e->getFile()),
+                    'error_line' => $e->getLine(),
+                ]
+            );
+
+            return $redirect()->withErrors([
+                'bootstrap' => 'Bootstrap failed. Check provisioning logs.'
             ]);
-            return $redirect()->withErrors(['bootstrap' => 'Bootstrap failed. Review the provisioning log and administrator SSH access.']);
         }
     }
 }
