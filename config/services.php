@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'zeitops' => [
+        'provisioning_enabled' =>
+            env('ZEITOPS_ENABLE_VPS_INSTALL', false),
+    ],
+
 ];
