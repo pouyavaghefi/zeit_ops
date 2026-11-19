@@ -6,6 +6,9 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Carbon;
+use App\Services\Provisioning\ServerBootstrapService;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class ServerController extends PanelController
 {
@@ -323,6 +326,114 @@ EOT;
             'server',
             'serverId'
         ));
+    }
+
+
+    /**
+     * Authorize and bootstrap a registered VPS.
+     *
+     * POST /panel/servers/{serverId}/bootstrap
+     */
+    public function bootstrap(
+        Request $request,
+        string $serverId,
+        ServerBootstrapService $bootstrapService
+    ) {
+        $validated = $request->validate([
+            'admin_username' => [
+                'required',
+                'string',
+                'regex:/^[a-z_][a-z0-9_-]{0,31}$/',
+            ],
+            'admin_password' => [
+                'required',
+                'string',
+            ],
+            'confirm_bootstrap' => [
+                'required',
+                'accepted',
+            ],
+        ]);
+
+        abort_unless(Str::isUuid($serverId), 404);
+
+        $metadataPath = storage_path(
+            "app/private/zeitops/servers/{$serverId}/server.json"
+        );
+
+        abort_unless(
+            \Illuminate\Support\Facades\File::isFile($metadataPath),
+            404
+        );
+
+        try {
+            $server = json_decode(
+                \Illuminate\Support\Facades\File::get($metadataPath),
+                true,
+                512,
+                JSON_THROW_ON_ERROR
+            );
+        } catch (\Throwable $e) {
+            report($e);
+            abort(404);
+        }
+
+        abort_unless(
+            is_array($server) &&
+            ($server['id'] ?? null) === $serverId &&
+            (string) ($server['user_id'] ?? '') ===
+            (string) $request->user()->id,
+            404
+        );
+
+        if (($server['status'] ?? null) !== 'connected') {
+            return back()->withErrors([
+                'bootstrap' =>
+                    'Verify the SSH connection before bootstrapping.',
+            ]);
+        }
+
+        if (($server['provisioning_status'] ?? null) === 'ready') {
+            return back()->with(
+                'success',
+                'This server is already configured for provisioning.'
+            );
+        }
+
+        try {
+            $result = $bootstrapService->bootstrap(
+                serverId: $serverId,
+                ownerId: (int) $request->user()->id,
+                adminUsername: $validated['admin_username'],
+                adminPassword: $validated['admin_password']
+            );
+
+            return redirect()
+                ->route('panel.servers.manage', [
+                    'serverId' => $serverId,
+                ])
+                ->with('success', $result['message']);
+
+        } catch (\Throwable $e) {
+
+            Log::channel('provisioning')->error(
+                'Server bootstrap request failed',
+                [
+                    'server_id' => $serverId,
+                    'user_id' => $request->user()->id,
+                    'exception_class' => get_class($e),
+                ]
+            );
+
+            return redirect()
+                ->route('panel.servers.manage', [
+                    'serverId' => $serverId,
+                ])
+                ->withErrors([
+                    'bootstrap' =>
+                        'Unable to prepare the server. Check provisioning logs.',
+                ]);
+        }
     }
 
 }

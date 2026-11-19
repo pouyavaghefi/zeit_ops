@@ -67,6 +67,16 @@ Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () 
                 'check'
             ])->name('check');
 
+            Route::post('/{serverId}/bootstrap', [
+                ServerController::class,
+                'bootstrap'
+            ])
+                ->whereUuid('serverId')
+                ->middleware([
+                    'password.confirm',
+                    'throttle:3,10',
+                ])
+                ->name('bootstrap');
         });
 
 

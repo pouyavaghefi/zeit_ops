@@ -1,4 +1,3 @@
-
 @extends('panel.layouts.master')
 
 @section('wrapper')
@@ -22,7 +21,11 @@
             ?? $server['ssh_user']
             ?? 'zeitops';
 
-        $hostVerified = (bool) ($server['host_verified'] ?? false);
+        $hostVerified = !empty($server['host_fingerprint']);
+        $provisioningStatus = strtolower((string) ($server['provisioning_status'] ?? 'not_configured'));
+        $bootstrapVersion = $server['bootstrap_version'] ?? null;
+        $bootstrapCompletedAt = $server['bootstrap_completed_at'] ?? null;
+        $isReady = $provisioningStatus === 'ready';
     @endphp
 
     <style>
@@ -216,6 +219,24 @@
             color: white;
         }
 
+        .zo-bootstrap-panel { margin-top: 20px; }
+        .zo-bootstrap-status {
+            display: inline-flex; align-items: center; gap: 8px;
+            border-radius: 999px; padding: 8px 13px;
+            font-size: 12px; font-weight: 700;
+            background: #fff4db; color: #ad7615;
+        }
+        .zo-bootstrap-status.ready { background: #e4f8ee; color: #168956; }
+        .zo-bootstrap-status.failed { background: #fff0f2; color: #c43f59; }
+        .zo-bootstrap-description { font-size: 13px; color: #64748b; line-height: 1.8; }
+        .zo-bootstrap-label { color: #344660; font-size: 12px; font-weight: 650; }
+        .zo-bootstrap-input { border: 1px solid #dce5f2; border-radius: 9px; padding: 11px 13px; }
+        .zo-bootstrap-input:focus { border-color: #4882ff; box-shadow: 0 0 0 3px rgba(72,130,255,.12); }
+        .zo-manage-button { border: 0; cursor: pointer; }
+        .zo-manage-button:disabled { opacity: .6; cursor: not-allowed; }
+        .zo-bootstrap-summary { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 15px; }
+        .zo-bootstrap-help { font-size: 12px; color: #7d8ea5; line-height: 1.7; }
+
         @media(max-width: 750px) {
             .zo-manage-page {
                 padding: 16px;
@@ -380,10 +401,14 @@
                         <div class="zo-manage-notice">
                             <i class="fas fa-info-circle me-2"></i>
 
-                            This page displays your registered VPS details.
-                            Remote inspection, installation, monitoring, and
-                            security operations require the provisioning
-                            backend to be implemented.
+                            @if($isReady)
+                                This VPS has completed management bootstrap. Website deployment
+                                requires the separate stack and application provisioning workflow.
+                            @else
+                                SSH connectivity alone does not grant installation permissions.
+                                Complete Automated Server Preparation below to enable the restricted
+                                management helper.
+                            @endif
                         </div>
 
                     </div>
@@ -391,6 +416,121 @@
                 </section>
 
             </div>
+
+
+            {{-- AUTOMATED SERVER BOOTSTRAP --}}
+            <section class="zo-manage-card zo-bootstrap-panel" aria-labelledby="zo-bootstrap-heading">
+                <div class="zo-manage-card-head">
+                    <h2 id="zo-bootstrap-heading">
+                        <i class="fas fa-shield-alt me-2"></i>
+                        Automated Server Preparation
+                    </h2>
+                    <p>Authorize ZeitOps to prepare this VPS for website deployments</p>
+                </div>
+
+                <div class="zo-manage-card-body">
+                    @if(session('success'))
+                        <div class="alert alert-success" role="status">
+                            <i class="fas fa-check-circle me-2"></i>{{ session('success') }}
+                        </div>
+                    @endif
+
+                    @if($errors->any())
+                        <div class="alert alert-danger" role="alert">
+                            <i class="fas fa-exclamation-circle me-2"></i>
+                            {{ $errors->first('bootstrap') ?: $errors->first() }}
+                        </div>
+                    @endif
+
+                    <div class="zo-bootstrap-summary">
+                        <span class="zo-bootstrap-status {{ $isReady ? 'ready' : ($provisioningStatus === 'failed' ? 'failed' : '') }}">
+                            <i class="fas {{ $isReady ? 'fa-check-circle' : ($provisioningStatus === 'failed' ? 'fa-times-circle' : 'fa-clock') }}"></i>
+                            {{ ucwords(str_replace('_', ' ', $provisioningStatus)) }}
+                        </span>
+                        @if($bootstrapVersion)
+                            <span class="zo-bootstrap-help">Bootstrap version: {{ $bootstrapVersion }}</span>
+                        @endif
+                        @if($bootstrapCompletedAt)
+                            <span class="zo-bootstrap-help">Completed: {{ $bootstrapCompletedAt }}</span>
+                        @endif
+                    </div>
+
+                    @if($isReady)
+                        <p class="zo-bootstrap-description">
+                            The restricted ZeitOps management helper has been installed and verified.
+                            You can continue to website provisioning.
+                        </p>
+                        <a href="{{ route('panel.websites.all') }}" class="zo-manage-button">
+                            <i class="fas fa-globe"></i> View Websites
+                            <i class="fas fa-arrow-right"></i>
+                        </a>
+                    @elseif($status !== 'connected')
+                        <div class="alert alert-warning mb-0" role="status">
+                            Verify the server's SSH connection and trusted host fingerprint before bootstrapping.
+                        </div>
+                    @elseif(!Route::has('panel.servers.bootstrap'))
+                        <div class="alert alert-warning mb-0" role="status">
+                            The server bootstrap endpoint is not configured yet.
+                        </div>
+                    @else
+                        <p class="zo-bootstrap-description">
+                            ZeitOps will use one-time administrator authorization to create or update the
+                            management account, install its restricted helper, configure the approved sudo
+                            policy and verify the result. Back up your VPS and review these changes before proceeding.
+                        </p>
+
+                        <form method="POST"
+                              action="{{ route('panel.servers.bootstrap', ['serverId' => $serverId]) }}"
+                              autocomplete="off"
+                              id="zo-bootstrap-form">
+                            @csrf
+
+                            <div class="mb-3">
+                                <label for="zo-admin-username" class="form-label zo-bootstrap-label">
+                                    Administrator SSH Username
+                                </label>
+                                <input id="zo-admin-username" type="text" name="admin_username"
+                                       class="form-control zo-bootstrap-input @error('admin_username') is-invalid @enderror"
+                                       value="{{ old('admin_username', 'root') }}"
+                                       autocomplete="off" maxlength="32" required>
+                                @error('admin_username')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="zo-admin-password" class="form-label zo-bootstrap-label">
+                                    One-Time Administrator SSH Password
+                                </label>
+                                <input id="zo-admin-password" type="password" name="admin_password"
+                                       class="form-control zo-bootstrap-input @error('admin_password') is-invalid @enderror"
+                                       autocomplete="new-password" required>
+                                @error('admin_password')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                                <div class="zo-bootstrap-help mt-2">
+                                    Used for this request; never saved in server metadata. Password-based SSH
+                                    administrator login must be enabled for this method.
+                                </div>
+                            </div>
+
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" name="confirm_bootstrap"
+                                       value="1" id="zo-bootstrap-confirm" required>
+                                <label class="form-check-label zo-bootstrap-description" for="zo-bootstrap-confirm">
+                                    I own or administer this VPS and authorize ZeitOps to install its
+                                    management account, helper and restricted privileged operations.
+                                </label>
+                            </div>
+
+                            <button type="submit" class="zo-manage-button" id="zo-bootstrap-submit">
+                                <i class="fas fa-shield-alt"></i>
+                                <span id="zo-bootstrap-submit-label">Authorize &amp; Prepare Server</span>
+                            </button>
+                        </form>
+                    @endif
+                </div>
+            </section>
 
             <div class="zo-manage-footer">
                 <a
@@ -406,4 +546,17 @@
         </div>
     </div>
 
+    <script>
+        document.getElementById('zo-bootstrap-form')?.addEventListener('submit', function (event) {
+            if (!this.reportValidity()) {
+                event.preventDefault();
+                return;
+            }
+            const submit = document.getElementById('zo-bootstrap-submit');
+            if (submit) {
+                submit.disabled = true;
+                document.getElementById('zo-bootstrap-submit-label').textContent = 'Preparing Server...';
+            }
+        });
+    </script>
 @endsection

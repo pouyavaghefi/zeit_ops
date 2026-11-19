@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\File;
 use phpseclib3\Crypt\PublicKeyLoader;
 use phpseclib3\Net\SSH2;
 use RuntimeException;
+use Illuminate\Support\Facades\Log;
 
 class ServerSshService
 {
@@ -139,6 +140,7 @@ class ServerSshService
         return $ssh;
     }
 
+
     public function execute(
         SSH2 $ssh,
         string $command,
@@ -150,8 +152,18 @@ class ServerSshService
         $exitCode = $ssh->getExitStatus();
 
         if ($output === false || $exitCode !== 0) {
+
+            Log::channel('provisioning')->error(
+                'SSH command execution failed',
+                [
+                    'exit_code' => $exitCode,
+                    'timed_out' => $ssh->isTimeout(),
+                ]
+            );
+
             throw new RuntimeException(
-                'Remote command failed or timed out.'
+                'Remote command failed. Exit code: ' .
+                ($exitCode ?? 'unknown')
             );
         }
 

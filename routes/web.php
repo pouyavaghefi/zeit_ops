@@ -28,7 +28,7 @@ Route::get('/de', function () {
 // Show new server form
 Route::get('/servers/new', function () {
     return view('test.new_server');
-})->name('servers.new');
+})->name('servers.new')->middleware('auth')->name('servers.new');
 
 // Handle new server form submit
 Route::post('/servers/new', function (Request $request) {
@@ -101,6 +101,9 @@ BASH;
         'user_id' => null,
         'created_at' => now()->toIso8601String(),
         'enrollment_token_hash' => hash('sha256', $enrollmentToken),
+        'provisioning_status' => 'not_configured',
+        'bootstrap_version' => null,
+        'bootstrap_completed_at' => null,
     ];
 
     $metadataPath = $directory . '/server.json';
@@ -132,7 +135,8 @@ BASH;
         'enrollmentToken'
     ));
 
-})->middleware('throttle:5,1')->name('servers.store');
+})->middleware(['auth', 'throttle:5,1'])
+    ->name('servers.store');
 
 Route::get('/servers/enroll/{serverId}', function (string $serverId) {
 
