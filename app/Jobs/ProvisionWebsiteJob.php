@@ -312,18 +312,33 @@ class ProvisionWebsiteJob implements ShouldQueue
 
             // Website remains pending until deployment and health checks.
 
-        } catch (Throwable $e) {
+        }
+        catch (Throwable $e) {
+
             $this->recordFailure(
                 $run,
                 'Server preparation failed. Review the provisioning logs.'
             );
 
-            Log::error('ZeitOps provisioning failure', [
-                'run_id' => $run->id,
-                'website_id' => $website->id,
-                'exception' => $e,
-            ]);
+            Log::channel('provisioning')->error(
+                'Website provisioning failed',
+                [
+                    'run_id' => $run->id,
+                    'website_id' => $website->id,
+                    'server_id' => $run->server_id,
+                    'domain' => $website->domain,
+                    'stack' => $website->stack,
+                    'framework' => $website->framework,
+
+                    'current_operation' => $run->fresh()->current_operation,
+
+                    'exception_class' => get_class($e),
+                    'exception_message' => $e->getMessage(),
+                    'exception' => $e,
+                ]
+            );
         }
+
     }
 
     private function installPackages(
@@ -382,6 +397,15 @@ class ProvisionWebsiteJob implements ShouldQueue
             'current_operation' => $operation,
             'message' => $operation,
         ]);
+
+        Log::channel('provisioning')->info(
+            'Provisioning task started',
+            [
+                'run_id' => $run->id,
+                'task_id' => $taskId,
+                'operation' => $operation,
+            ]
+        );
 
         $this->appendLog($run, $operation);
     }

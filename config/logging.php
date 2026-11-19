@@ -127,6 +127,14 @@ return [
             'path' => storage_path('logs/laravel.log'),
         ],
 
+        'provisioning' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/provisioning.log'),
+            'level' => env('LOG_PROVISIONING_LEVEL', 'debug'),
+            'days' => 30,
+            'replace_placeholders' => true,
+        ],
+
     ],
 
 ];
