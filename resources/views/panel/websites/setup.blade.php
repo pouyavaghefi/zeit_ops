@@ -1825,35 +1825,69 @@
             |--------------------------------------------------------------------------
             */
 
+
             async function requestJson(url, options = {}) {
 
                 const response = await fetch(url, {
+                    ...options,
+
                     credentials: 'same-origin',
                     cache: 'no-store',
+                    redirect: 'follow',
+
                     headers: {
                         'Accept': 'application/json',
                         'X-Requested-With': 'XMLHttpRequest',
-                        ...options.headers
-                    },
-                    ...options
+                        ...(options.headers || {})
+                    }
                 });
 
                 const contentType =
                     response.headers.get('content-type') || '';
 
                 if (!contentType.includes('application/json')) {
+
+                    console.error('Unexpected provisioning response', {
+                        url: url,
+                        status: response.status,
+                        redirected: response.redirected,
+                        finalUrl: response.url,
+                        contentType: contentType
+                    });
+
+                    if (response.status === 419) {
+                        throw new Error(
+                            'Your session has expired. Refresh the page and try again.'
+                        );
+                    }
+
+                    if (
+                        response.redirected ||
+                        response.status === 401
+                    ) {
+                        throw new Error(
+                            'Your request was redirected or your session expired. ' +
+                            'Check your login and membership status.'
+                        );
+                    }
+
                     throw new Error(
-                        'The server returned an unexpected response. ' +
-                        'Please sign in again or reload the page.'
+                        'Provisioning API returned HTTP ' +
+                        response.status +
+                        ' instead of JSON. Check Laravel logs and the Network response.'
                     );
                 }
 
                 const result = await response.json();
 
                 if (!response.ok) {
+
+                    console.error('Provisioning API error', result);
+
                     throw new Error(
                         result.message ||
-                        'The request failed (' + response.status + ').'
+                        'Provisioning request failed (HTTP ' +
+                        response.status + ').'
                     );
                 }
 
