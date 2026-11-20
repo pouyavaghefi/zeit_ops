@@ -195,7 +195,8 @@
                                         <div class="fw-semibold">
                                             <a
                                                 href="{{ route('panel.servers.manage', ['serverId' => $server['id']]) }}"
-                                                class="text-decoration-none fw-bold"
+                                                class="text-primary text-decoration-none fw-bold"
+                                                title="Manage server {{ $server['ip'] }}"
                                             >
                                                 {{ $server['ip'] }}
                                             </a>
@@ -252,9 +253,14 @@
                                     </td>
 
                                     <td class="text-end pe-4">
-                                        <span class="text-muted small">
-                                            Management coming soon
-                                        </span>
+                                        <a
+                                            href="{{ route('panel.servers.manage', ['serverId' => $server['id']]) }}"
+                                            class="btn btn-sm btn-outline-primary fw-semibold"
+                                            aria-label="Manage server {{ $server['ip'] }}"
+                                        >
+                                            <i class="fas fa-cog me-1" aria-hidden="true"></i>
+                                            Manage Server
+                                        </a>
                                     </td>
 
                                 </tr>
