@@ -156,17 +156,48 @@ class ProvisionWebsiteJob implements ShouldQueue
 
             // 6 / 6: Verify package presence. Service configuration and
             // web traffic health will be handled in the deployment stage.
-            $this->beginTask($run, 'verify', 'Verifying installed stack dependencies');
-            foreach (['apache2', 'php8.3-fpm', 'mysql-server'] as $package) {
-                // The package names come only from this fixed internal list.
-                $servers->execute(
+
+            // 6 / 6: Verify installed LAMP dependencies.
+            $this->beginTask(
+                $run,
+                'verify',
+                'Verifying installed stack dependencies'
+            );
+
+            $packages = [
+                'apache2',
+                'php8.3-fpm',
+                'mysql-server',
+            ];
+
+            foreach ($packages as $package) {
+                $command = 'dpkg-query -W -f=' .
+                    escapeshellarg('${Status}') . ' ' .
+                    escapeshellarg($package) .
+                    ' 2>/dev/null';
+
+                $output = trim($servers->execute(
                     $ssh,
-                    'dpkg-query -W -f="${Status}" ' . $package .
-                    ' | grep -qx "install ok installed"'
-                );
+                    $command
+                ));
+
+                if ($output !== 'install ok installed') {
+                    throw new RuntimeException(
+                        "Required package {$package} is not installed correctly."
+                    );
+                }
             }
-            $servers->execute($ssh, 'php8.3 -m | grep -qi "^pdo_mysql$"');
-            $this->finishTask($run, 'verify', 'All requested packages and extensions verified');
+
+            $servers->execute(
+                $ssh,
+                "php8.3 -r 'if (!extension_loaded(\"PDO\") || !extension_loaded(\"pdo_mysql\")) { exit(1); }'"
+            );
+
+            $this->finishTask(
+                $run,
+                'verify',
+                'All requested packages and extensions verified'
+            );
 
             $run->refresh();
             $run->update([

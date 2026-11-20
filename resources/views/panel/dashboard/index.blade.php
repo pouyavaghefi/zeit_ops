@@ -193,7 +193,12 @@
 
                                     <td class="ps-4">
                                         <div class="fw-semibold">
-                                            {{ $server['ip'] }}
+                                            <a
+                                                href="{{ route('panel.servers.manage', ['serverId' => $server['id']]) }}"
+                                                class="text-decoration-none fw-bold"
+                                            >
+                                                {{ $server['ip'] }}
+                                            </a>
                                         </div>
 
                                         <small class="text-muted">
