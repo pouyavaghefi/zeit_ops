@@ -65,7 +65,7 @@ class ProvisionWebsiteJob implements ShouldQueue
                 (string) $website->server_id !== (string) $run->server_id ||
                 !LampRecipe::supported(
                     (string) $website->stack,
-                    (string) ($website->runtime_version ?: $website->php_version)
+                    (string) (($website->runtime_version ?? null) ?: $website->php_version)
                 )
             ) {
                 throw new RuntimeException('Website stack or server configuration is unsupported.');
@@ -204,10 +204,22 @@ class ProvisionWebsiteJob implements ShouldQueue
                 'status' => 'completed',
                 'percentage' => 100,
                 'current_operation' => 'LAMP server dependencies ready',
-                'message' => 'Server dependencies are ready. Git and website deployment are separate steps.',
+                'message' => 'Server dependencies are ready. Repository verification is queued when configured.',
                 'error' => null,
                 'finished_at' => now(),
             ]);
+
+            // Queue read-only repository access verification; it does not publish the site.
+            if (!empty($website->repository_url)) {
+                try {
+                    DeployWebsiteJob::dispatch($website->id)->onQueue('deployments');
+                } catch (Throwable $dispatchError) {
+                    Log::channel('provisioning')->error('Repository preflight dispatch failed', [
+                        'website_id' => $website->id,
+                        'exception_class' => get_class($dispatchError),
+                    ]);
+                }
+            }
 
             $this->appendLog($run, 'Dependency provisioning completed successfully.');
             Log::channel('provisioning')->info('Website server dependencies ready', [

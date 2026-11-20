@@ -1,61 +1,47 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# ZeitOps Git preflight patch (not yet website publication)
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+## Reviewed inputs
+- `Website` uses `repository_url`, `repository_branch`, `framework`, `stack`, and `php_version`.
+- `ProvisionWebsiteJob` already contains a dispatch call to `DeployWebsiteJob` after provisioning success.
+- `ServerBootstrapService` currently installs a root helper that allows only `check`, `update`, `install-apache`, `install-php83`, `install-tools`; Apache website configuration is not authorized by that helper.
+- Website setup Blade shows deployment as a future stage and polls only the provisioning run.
 
-## About Laravel
+## Changes
+- `app/Jobs/DeployWebsiteJob.php`: safe Git access preflight using the currently pinned SSH host identity, owner verification, and `git ls-remote` for the saved GitHub branch; logs commit and errors through the existing provisioning log. No Git checkout, application code execution, Apache change, DB migration, or website activation.
+- `app/Jobs/ProvisionWebsiteJob.php`: retains successful 6/6 stack provisioning, dispatches the new job if a repository URL exists, guards against a missing `runtime_version` property, and isolates dispatch failures from the already completed stack run.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Install
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+```bash
+cd /var/www/zeitops
+# Back up existing file before copying the patch files into corresponding paths
+php -l app/Jobs/ProvisionWebsiteJob.php
+php -l app/Jobs/DeployWebsiteJob.php
+php artisan optimize:clear
+php artisan queue:restart
+```
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+Start via existing Supervisor-managed queue workers, or for testing ONLY (run as your Laravel app account):
 
-## Learning Laravel
+```bash
+sudo -u www-data php artisan queue:work database --queue=provisioning,deployments --tries=3 --timeout=1800
+```
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+**Important**: the user-facing website is NOT published by this patch. If your latest provisioning run already completed, the automatic dispatch in that run will not rerun; launch only the read-only Git verification with:
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+```bash
+sudo -u www-data php artisan tinker --execute='App\Jobs\DeployWebsiteJob::dispatch(1);'
+```
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+If PsySH has no writable config directory, use a tiny one-time Artisan command instead, or configure HOME/XDG_CONFIG_HOME to a properly permissioned directory. Avoid running queues as root.
 
-## Laravel Sponsors
+## Publishing requirements
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+Before customer code can be executed or served safely, ZeitOps needs:
+1. Per-website isolated OS identity (not `zeitops`, which holds management credentials), locked-down releases/storage paths, and resource limits.
+2. A reviewed root-owned restricted site-management helper and matching exact sudoers rules; the currently installed helper does not configure virtual hosts.
+3. A release state machine and logs persisted separately from `WebsiteProvisioningRun`; UI stage after server dependencies.
+4. Secure Git credentials for private repos, secrets and DB provisioning, Composer/Node dependency isolation, HTTPS and domain verification.
+5. Health checks, atomic activation, and rollback.
 
-### Premium Partners
-
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
-
-## Contributing
-
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
-
-## Code of Conduct
-
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Do **not** give `zeitops` `NOPASSWD: ALL` or run arbitrary customer package scripts under the SSH management account. This package is a safe precursor rather than pretending to enable full application deployment.
