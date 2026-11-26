@@ -1,0 +1,255 @@
+#!/usr/bin/env bash
+# ZeitOps single-VPS Laravel deployment helper, initial trusted-VPS release.
+# Root-owned entry point. Everything from the repository runs as its OWN site user.
+set -Eeuo pipefail
+umask 077
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export DEBIAN_FRONTEND=noninteractive
+unset BASH_ENV ENV CDPATH GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM
+export GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false
+export COMPOSER_NO_INTERACTION=1
+
+fail() { printf 'ZEITOPS_ERROR: %s\n' "$*" >&2; exit 1; }
+[[ "$(id -u)" == 0 ]] || fail 'Requires root through the approved sudoers rule.'
+[[ "$#" == 5 ]] || fail 'Expected site-id domain repo branch commit.'
+SITE_ID="$1" DOMAIN="$2" REPO="$3" BRANCH="$4" COMMIT="$5"
+[[ "$SITE_ID" =~ ^[1-9][0-9]{0,8}$ ]] || fail 'Invalid site ID.'
+[[ ${#DOMAIN} -le 253 && "$DOMAIN" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] || fail 'Invalid domain.'
+[[ "$REPO" =~ ^https://github\.com/[a-zA-Z0-9-]{1,39}/[a-zA-Z0-9._-]{1,100}\.git$ ]] || fail 'Unsupported repository.'
+[[ "$BRANCH" =~ ^[a-zA-Z0-9][a-zA-Z0-9._/-]*$ && ${#BRANCH} -le 150 && "$BRANCH" != *'..'* && "$BRANCH" != *'//'* && "$BRANCH" != */ && "$BRANCH" != *.lock ]] || fail 'Invalid Git branch.'
+[[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || fail 'Invalid commit.'
+
+# Stop domain collision between distinct ZeitOps site IDs on the same VPS.
+for manifest in /etc/zeitops/sites/*.domain; do
+  [[ -f "$manifest" ]] || continue
+  [[ "$manifest" == "/etc/zeitops/sites/${SITE_ID}.domain" ]] && continue
+  [[ "$(cat "$manifest")" != "$DOMAIN" ]] || fail 'Domain already assigned to another site.'
+done
+
+USERNAME="zs${SITE_ID}"
+SITE="/srv/zeitops/sites/${SITE_ID}"
+RELEASE="${SITE}/releases/${COMMIT}"
+SHARED="${SITE}/shared"
+CURRENT="${SITE}/current"
+POOL="/etc/php/8.3/fpm/pool.d/zeitops-${SITE_ID}.conf"
+SOCKET="/run/php/zeitops-${SITE_ID}.sock"
+VHOST="/etc/apache2/sites-available/zeitops-${SITE_ID}.conf"
+LOGFILE="/var/log/zeitops-deploy-${SITE_ID}.log"
+DBNAME="zs_${SITE_ID}"
+DBUSER="zs_${SITE_ID}"
+STAGE="preflight"
+
+mkdir -p /etc/zeitops/sites
+chmod 700 /etc/zeitops /etc/zeitops/sites
+install -d -o root -g root -m 711 /srv/zeitops /srv/zeitops/sites
+mkdir -p /var/log
+exec 3>>"$LOGFILE"
+chmod 600 "$LOGFILE"
+log() { printf '[%s] site=%s stage=%s %s\n' "$(date -Is)" "$SITE_ID" "$STAGE" "$*" >&3; }
+trap 'log "FAILED (exit=$?)"' ERR
+log 'deploy started'
+
+# Serialization on the remote host too (not only the queue middleware).
+exec 9>"/run/lock/zeitops-site-${SITE_ID}.lock"
+flock -n 9 || fail 'Another release is already deploying on this VPS.'
+
+[[ -x /usr/bin/git && -x /usr/bin/php8.3 && -x /usr/bin/composer ]] || fail 'Install Git, PHP 8.3 and Composer first.'
+[[ -x /usr/sbin/apache2 && -d /etc/php/8.3/fpm/pool.d ]] || fail 'Apache or PHP-FPM 8.3 missing.'
+[[ -x /usr/bin/mysql ]] || fail 'MySQL client missing.'
+[[ ! -e "$SITE" || ! -L "$SITE" ]] || fail 'Refusing symlinked site directory.'
+
+STAGE='site-user'
+if ! id "$USERNAME" >/dev/null 2>&1; then
+    useradd --system --user-group --home-dir "$SITE" --shell /usr/sbin/nologin "$USERNAME"
+fi
+install -d -m 711 -o root -g root "$SITE" "$SITE/releases"
+install -d -m 700 -o "$USERNAME" -g "$USERNAME" "$SHARED" "$SHARED/storage" "$SHARED/storage/app" "$SHARED/storage/app/public" "$SHARED/storage/framework" "$SHARED/storage/framework/cache" "$SHARED/storage/framework/sessions" "$SHARED/storage/framework/views" "$SHARED/storage/logs"
+chmod 711 "$SHARED" "$SHARED/storage" "$SHARED/storage/app"
+chmod 755 "$SHARED/storage/app/public"
+[[ ! -e "$CURRENT" || -L "$CURRENT" ]] || fail 'Existing current path is not an expected release symlink.'
+install -d -m 700 -o "$USERNAME" -g "$USERNAME" "$RELEASE"
+# /srv/zeitops/sites/<id>/releases is root owned, so clone in a per-site owned
+# existing checkout directory with git init rather than allowing user to replace siblings.
+if [[ ! -d "$RELEASE/.git" ]]; then
+    runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARED" GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false \
+      git -C "$RELEASE" init -q
+    runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARED" GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false \
+      git -C "$RELEASE" remote add origin "$REPO"
+fi
+
+STAGE='git-checkout'
+runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARED" GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false \
+    git -C "$RELEASE" -c credential.helper= fetch --no-tags --depth 1 origin "$BRANCH" >&3 2>&3
+runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARED" \
+    git -C "$RELEASE" -c core.hooksPath=/dev/null checkout -q --detach "$COMMIT" >&3 2>&3
+[[ "$(git -C "$RELEASE" rev-parse HEAD)" == "$COMMIT" ]] || fail 'Checkout commit mismatch.'
+chmod 711 "$RELEASE"
+chmod 755 "$RELEASE/public"
+find "$RELEASE/public" -type d -exec chmod 755 {} +
+find "$RELEASE/public" -type f -exec chmod 644 {} +
+[[ -f "$RELEASE/artisan" && -f "$RELEASE/composer.json" && -d "$RELEASE/public" ]] || fail 'Repository is not a Laravel application.'
+
+STAGE='database'
+# Reuse credentials and .env on redeploy; never rotate credentials implicitly.
+ENVFILE="$SHARED/.env"
+if [[ ! -f "$ENVFILE" ]]; then
+    DBPASS="$(/usr/bin/openssl rand -hex 24)"
+    [[ -f "$RELEASE/.env.example" ]] && cp "$RELEASE/.env.example" "$ENVFILE" || : > "$ENVFILE"
+    chown "$USERNAME:$USERNAME" "$ENVFILE"
+    chmod 600 "$ENVFILE"
+    export ZO_APP_URL="https://${DOMAIN}" ZO_DB_NAME="$DBNAME" ZO_DB_USER="$DBUSER" ZO_DB_PASS="$DBPASS" ZO_ENVFILE="$ENVFILE"
+    /usr/bin/php8.3 -r '
+      $path=getenv("ZO_ENVFILE"); $s=file_get_contents($path);
+      $vars=["APP_ENV"=>"production","APP_DEBUG"=>"false","APP_URL"=>getenv("ZO_APP_URL"),"DB_CONNECTION"=>"mysql","DB_HOST"=>"127.0.0.1","DB_PORT"=>"3306","DB_DATABASE"=>getenv("ZO_DB_NAME"),"DB_USERNAME"=>getenv("ZO_DB_USER"),"DB_PASSWORD"=>getenv("ZO_DB_PASS")];
+      foreach($vars as $k=>$v){$line=$k."=".$v; $pattern="/^\\s*#?\\s*".preg_quote($k,"/")."=.*$/m"; $s=preg_match($pattern,$s)?preg_replace($pattern,$line,$s):rtrim($s)."\n".$line."\n";}
+      if(file_put_contents($path,$s)===false)exit(1);
+    '
+    unset ZO_APP_URL ZO_DB_NAME ZO_DB_USER ZO_DB_PASS ZO_ENVFILE
+    # All variable values are either numeric or cryptographically generated hex.
+    /usr/bin/mysql --batch --skip-column-names <<SQL
+CREATE DATABASE IF NOT EXISTS \`$DBNAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '$DBUSER'@'localhost' IDENTIFIED BY '$DBPASS';
+CREATE USER IF NOT EXISTS '$DBUSER'@'127.0.0.1' IDENTIFIED BY '$DBPASS';
+GRANT ALL PRIVILEGES ON \`$DBNAME\`.* TO '$DBUSER'@'localhost';
+GRANT ALL PRIVILEGES ON \`$DBNAME\`.* TO '$DBUSER'@'127.0.0.1';
+SQL
+    unset DBPASS
+else
+    [[ ! -L "$ENVFILE" ]] || fail 'Refusing linked shared .env.'
+fi
+ln -sfn "$ENVFILE" "$RELEASE/.env"
+chown -h "$USERNAME:$USERNAME" "$RELEASE/.env"
+# Keep framework data out of the immutable release.
+rm -rf "$RELEASE/storage"
+ln -s "$SHARED" "$RELEASE/storage"
+chown -h "$USERNAME:$USERNAME" "$RELEASE/storage"
+install -d -m 700 -o "$USERNAME" -g "$USERNAME" "$RELEASE/bootstrap/cache"
+
+STAGE='composer'
+runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARED" COMPOSER_NO_INTERACTION=1 \
+    /usr/bin/composer install --working-dir="$RELEASE" --no-dev --prefer-dist --no-progress --no-interaction --optimize-autoloader >&3 2>&3
+
+STAGE='assets'
+if [[ -f "$RELEASE/package.json" && ! -d "$RELEASE/public/build" ]]; then
+    command -v node >/dev/null && command -v npm >/dev/null || fail 'Node.js and npm required to compile frontend assets.'
+    NODE_VERSION="$(node -p 'process.versions.node')"
+    NODE_MAJOR="${NODE_VERSION%%.*}"
+    NODE_MINOR="${NODE_VERSION#*.}"; NODE_MINOR="${NODE_MINOR%%.*}"
+    if (( NODE_MAJOR < 20 || NODE_MAJOR == 21 || (NODE_MAJOR == 20 && NODE_MINOR < 19) || (NODE_MAJOR == 22 && NODE_MINOR < 12) )); then
+        fail 'Frontend build needs Node.js >=20.19 or >=22.12; install supported Node.js on VPS.'
+    fi
+    if [[ -f "$RELEASE/package-lock.json" ]]; then
+      runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARED" npm --prefix "$RELEASE" ci --no-audit --no-fund >&3 2>&3
+    else
+      runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARED" npm --prefix "$RELEASE" install --no-audit --no-fund >&3 2>&3
+    fi
+    runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARED" npm --prefix "$RELEASE" run build >&3 2>&3
+fi
+
+# Make newly compiled public assets readable by Apache.
+find "$RELEASE/public" -type d -exec chmod 755 {} +
+find "$RELEASE/public" -type f -exec chmod 644 {} +
+
+STAGE='laravel-config'
+if ! grep -Eq '^APP_KEY=(base64:|[A-Za-z0-9])' "$ENVFILE"; then
+   runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARED" /usr/bin/php8.3 "$RELEASE/artisan" key:generate --force --no-interaction >&3 2>&3
+fi
+runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARED" /usr/bin/php8.3 "$RELEASE/artisan" storage:link --no-interaction >&3 2>&3 || true
+runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARED" /usr/bin/php8.3 "$RELEASE/artisan" config:cache --no-interaction >&3 2>&3
+# Migrations are deliberately NOT run automatically: they can destructively modify customer data.
+
+STAGE='php-fpm'
+cat > "${POOL}.tmp" <<EOF
+[zeitops-${SITE_ID}]
+user = ${USERNAME}
+group = ${USERNAME}
+listen = ${SOCKET}
+listen.owner = www-data
+listen.group = www-data
+listen.mode = 0660
+pm = ondemand
+pm.max_children = 3
+pm.process_idle_timeout = 10s
+pm.max_requests = 200
+security.limit_extensions = .php
+php_admin_value[expose_php] = Off
+php_admin_value[upload_tmp_dir] = ${SHARED}
+EOF
+chown root:root "${POOL}.tmp"; chmod 644 "${POOL}.tmp"
+mv -f "${POOL}.tmp" "$POOL"
+php-fpm8.3 -t >&3 2>&3
+systemctl enable --now php8.3-fpm >&3 2>&3
+systemctl reload php8.3-fpm >&3 2>&3
+
+STAGE='apache'
+a2enmod rewrite proxy proxy_fcgi setenvif headers >&3 2>&3
+cat > "${VHOST}.tmp" <<EOF
+<VirtualHost *:80>
+    ServerName ${DOMAIN}
+    DocumentRoot ${CURRENT}/public
+    <Directory ${CURRENT}/public>
+        AllowOverride All
+        Require all granted
+        Options FollowSymLinks
+    </Directory>
+    <FilesMatch "\\.php$">
+        SetHandler "proxy:unix:${SOCKET}|fcgi://localhost/"
+    </FilesMatch>
+    ErrorLog \${APACHE_LOG_DIR}/zeitops-${SITE_ID}-error.log
+    CustomLog \${APACHE_LOG_DIR}/zeitops-${SITE_ID}-access.log combined
+</VirtualHost>
+EOF
+chown root:root "${VHOST}.tmp"; chmod 644 "${VHOST}.tmp"
+[[ ! -f "$VHOST" ]] || cp "$VHOST" "${VHOST}.bak"
+mv -f "${VHOST}.tmp" "$VHOST"
+a2ensite "zeitops-${SITE_ID}.conf" >&3 2>&3
+if ! apache2ctl configtest >&3 2>&3; then
+   [[ ! -f "${VHOST}.bak" ]] || mv "${VHOST}.bak" "$VHOST"
+   fail 'Apache configuration failed validation.'
+fi
+
+STAGE='activate'
+PREVIOUS=""
+[[ ! -L "$CURRENT" ]] || PREVIOUS="$(readlink "$CURRENT")"
+ln -sfn "$RELEASE" "${CURRENT}.next"
+mv -Tf "${CURRENT}.next" "$CURRENT"
+# User is never allowed to replace the `current` symlink.
+chown -h root:root "$CURRENT"
+systemctl reload apache2 >&3 2>&3
+if ! curl --max-time 20 -sS -o /dev/null -H "Host: ${DOMAIN}" -w '%{http_code}' http://127.0.0.1/ | grep -Eq '^[23][0-9]{2}$'; then
+   if [[ -n "$PREVIOUS" ]]; then
+       ln -sfn "$PREVIOUS" "${CURRENT}.next"; mv -Tf "${CURRENT}.next" "$CURRENT"; systemctl reload apache2 >&3 2>&3 || true
+   fi
+   fail 'Local HTTP health check failed; previous release restored when available.'
+fi
+printf '%s\n' "$DOMAIN" > "/etc/zeitops/sites/${SITE_ID}.domain"
+chmod 600 "/etc/zeitops/sites/${SITE_ID}.domain"
+log "release $COMMIT activated"
+printf 'ZEITOPS_RELEASE_READY\n'
+
+# HTTPS is conditional on public DNS resolving to an IP actually assigned to this VPS.
+# If DNS isn't ready, site stays deployed but NOT marked active.
+STAGE='tls'
+RESOLVED_IPS="$(getent ahostsv4 "$DOMAIN" 2>/dev/null | awk '{print $1}' | sort -u || true)"
+LOCAL_IPS="$(ip -4 -o addr show scope global | awk '{split($4,a,"/"); print a[1]}' | sort -u)"
+DNS_OK=false
+while read -r ipaddr; do
+    [[ -n "$ipaddr" ]] || continue
+    if grep -qxF "$ipaddr" <<< "$LOCAL_IPS"; then DNS_OK=true; break; fi
+done <<< "$RESOLVED_IPS"
+
+if [[ "$DNS_OK" == true ]] && command -v certbot >/dev/null 2>&1; then
+    if certbot --apache --non-interactive --agree-tos --register-unsafely-without-email \
+        --redirect -d "$DOMAIN" >&3 2>&3; then
+        if curl -fsS -o /dev/null --max-time 25 --resolve "${DOMAIN}:443:127.0.0.1" "https://${DOMAIN}/"; then
+            printf 'ZEITOPS_PUBLIC_HTTPS_READY\n'
+            log 'HTTPS validated locally with DNS pointed at the VPS'
+        else
+            log 'TLS installed but HTTPS application check did not pass'
+        fi
+    else
+        log 'Certbot did not obtain a certificate; check domain DNS and firewall'
+    fi
+else
+    log 'DNS not matched to VPS or certbot missing: deployed HTTP only'
+fi

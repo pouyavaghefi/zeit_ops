@@ -1,4 +1,3 @@
-
 @extends('panel.layouts.master')
 
 @section('wrapper')
@@ -1316,9 +1315,22 @@
                     class="zo-wizard-next"
                     id="zo-deployment-notice"
                 >
-                    <i class="fas fa-lock me-2"></i>
-                    Deployment is not ready yet.
-                    Complete the server requirements stage first.
+                    @if($website->status === 'active')
+                        <i class="fas fa-check-circle me-2"></i>
+                        HTTPS deployment active. Last deployed: {{ optional($website->last_deployed_at)->format('d M Y H:i') ?? 'Recently' }}.
+                    @elseif($website->status === 'deployed')
+                        <i class="fas fa-globe me-2"></i>
+                        Release installed and verified locally. Check public DNS and HTTPS before going live.
+                    @elseif($website->status === 'deploying')
+                        <i class="fas fa-spinner fa-spin me-2"></i>
+                        Deployment is running. Refresh this page for the latest result.
+                    @elseif($website->status === 'failed')
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        Deployment failed. Inspect ZeitOps provisioning log and VPS site deployment log.
+                    @else
+                        <i class="fas fa-code-branch me-2"></i>
+                        Deployment starts after server provisioning. Existing completed servers can dispatch DeployWebsiteJob separately.
+                    @endif
                 </div>
 
             </section>

@@ -14,19 +14,18 @@ use RuntimeException;
 use Throwable;
 
 /**
- * Phase 1: validate remote Git access and inspect the requested ref.
- *
- * This is intentionally NOT a website-publishing operation. It does not
- * execute repository contents, create a DB, modify Apache, or mark a site
- * active. A per-site execution identity and restricted deployment helper
- * must exist before arbitrary customer code can safely be run on a VPS.
+ * First-release Laravel deployment executor for trusted/customer-owned VPSs.
+ * Requires the separately installed, root-owned ZeitOps deployment helper.
+ * Do not deploy mutually untrusted customers onto a shared OS without stronger isolation.
  */
 final class DeployWebsiteJob implements ShouldQueue
 {
     use Queueable;
 
-    public int $tries = 3;
-    public int $timeout = 180;
+    private const HELPER = '/usr/local/libexec/zeitops/deploy';
+
+    public int $tries = 1;
+    public int $timeout = 3600;
     public bool $failOnTimeout = true;
 
     public function __construct(public int $websiteId)
@@ -37,12 +36,9 @@ final class DeployWebsiteJob implements ShouldQueue
     public function middleware(): array
     {
         $website = Website::findOrFail($this->websiteId);
-
         return [
             (new WithoutOverlapping('zeitops-server-' . $website->server_id))
-                ->shared()
-                ->releaseAfter(30)
-                ->expireAfter(240),
+                ->shared()->releaseAfter(45)->expireAfter(3700),
         ];
     }
 
@@ -50,69 +46,91 @@ final class DeployWebsiteJob implements ShouldQueue
     {
         $website = Website::findOrFail($this->websiteId);
         $serverId = (string) $website->server_id;
+        $website->update(['status' => 'deploying']);
 
         try {
-            if ((string) $website->stack !== 'lamp' ||
-                (string) $website->framework !== 'laravel') {
-                throw new RuntimeException('Automatic repository checks currently support Laravel/LAMP only.');
+            if ($website->stack !== 'lamp' || $website->framework !== 'laravel') {
+                throw new RuntimeException('Only Laravel on the LAMP/PHP 8.3 stack is supported.');
             }
 
-            $url = $this->normalizeGithubUrl((string) $website->repository_url);
-            $branch = $this->validateBranch((string) ($website->repository_branch ?: 'main'));
+            if ((string) ($website->php_version ?: '8.3') !== '8.3') {
+                throw new RuntimeException('This release supports PHP 8.3 only.');
+            }
+
+            $url = $this->githubUrl((string) $website->repository_url);
+            $branch = $this->branch((string) ($website->repository_branch ?: 'main'));
+            $domain = $this->domain((string) $website->domain);
             $this->assertServerReady($serverId, (int) $website->user_id);
 
-            Log::channel('provisioning')->info('Repository preflight started', [
-                'website_id' => $website->id,
-                'server_id' => $serverId,
-                'branch' => $branch,
+            Log::channel('provisioning')->info('Website deployment started', [
+                'website_id' => $website->id, 'server_id' => $serverId,
+                'branch' => $branch, 'domain' => $domain,
             ]);
 
             $ssh = $servers->connect($serverId, (int) $website->user_id);
-            $identity = $servers->execute($ssh, 'id -un', 30);
-            if ($identity !== 'zeitops') {
-                throw new RuntimeException('Unexpected SSH management account.');
+            if ($servers->execute($ssh, 'id -un', 30) !== 'zeitops') {
+                throw new RuntimeException('Remote SSH identity is not the ZeitOps management account.');
             }
 
-            // Do not interpolate unescaped customer input into the shell.
-            // Disable interactive credential prompts so private repos fail cleanly.
-            $command = 'GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false ' .
+            // Verify the branch through the existing management connection.
+            $ref = 'refs/heads/' . $branch;
+            $cmd = 'GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false ' .
                 'git -c credential.helper= ls-remote --exit-code --heads ' .
-                escapeshellarg($url) . ' ' . escapeshellarg('refs/heads/' . $branch);
+                escapeshellarg($url) . ' ' . escapeshellarg($ref);
+            $output = trim($servers->execute($ssh, $cmd, 120));
+            if (!preg_match('/^([a-f0-9]{40})\s+' . preg_quote($ref, '/') . '$/D', $output, $m)) {
+                throw new RuntimeException('Repository branch did not resolve to an expected commit.');
+            }
+            $commit = $m[1];
 
-            $output = trim($servers->execute($ssh, $command, 90));
-            if (!preg_match('/^([0-9a-f]{40})\s+refs\/heads\/' .
-                preg_quote($branch, '/') . '$/D', $output, $match)) {
-                throw new RuntimeException('Git did not return an expected commit for the configured branch.');
+            // The root-owned helper rejects invalid args, never executes app code as root,
+            // and uses an OS identity dedicated to this website.
+            $args = [(string) $website->id, $domain, $url, $branch, $commit];
+            $command = 'sudo -n ' . self::HELPER . ' ' .
+                implode(' ', array_map('escapeshellarg', $args));
+            $result = trim($servers->execute($ssh, $command, 3300));
+
+            if (!str_contains($result, 'ZEITOPS_RELEASE_READY')) {
+                throw new RuntimeException('The deployment helper did not confirm release activation.');
             }
 
-            Log::channel('provisioning')->info('Repository accessible; publication not yet configured', [
-                'website_id' => $website->id,
-                'server_id' => $serverId,
-                'branch' => $branch,
-                'commit' => $match[1],
-                'next_step' => 'Install site-isolated deployment executor and restricted Apache helper',
+            $publicHttpsReady = str_contains($result, 'ZEITOPS_PUBLIC_HTTPS_READY');
+            $website->update([
+                'status' => $publicHttpsReady ? 'active' : 'deployed',
+                'last_deployed_at' => now(),
             ]);
 
-            // Never set active or last_deployed_at for an accessibility check.
+            Log::channel('provisioning')->info('Website release deployed', [
+                'website_id' => $website->id, 'domain' => $domain,
+                'commit' => $commit, 'https_ready' => $publicHttpsReady,
+                'status' => $publicHttpsReady ? 'active' : 'deployed',
+            ]);
         } catch (Throwable $e) {
-            Log::channel('provisioning')->error('Repository preflight failed', [
-                'website_id' => $website->id,
-                'server_id' => $serverId,
-                'exception_class' => get_class($e),
-                // Fixed messages only: do not leak Git credentials or raw remote output.
-                'reason' => $e instanceof RuntimeException ? $e->getMessage() : 'Unexpected repository preflight error',
+            $website->update(['status' => 'failed']);
+            Log::channel('provisioning')->error('Website deployment failed', [
+                'website_id' => $website->id, 'server_id' => $serverId,
+                'error_class' => get_class($e),
+                // Service errors are intentionally generic; no SSH output or secrets.
+                'reason' => $e instanceof RuntimeException ? $e->getMessage() : 'Unexpected deployment failure.',
             ]);
             throw $e;
         }
     }
 
-    private function normalizeGithubUrl(string $url): string
+    public function failed(?Throwable $exception): void
+    {
+        $website = Website::find($this->websiteId);
+        if ($website && $website->status === 'deploying') {
+            $website->update(['status' => 'failed']);
+        }
+    }
+
+    private function githubUrl(string $url): string
     {
         $url = trim($url);
         if (!preg_match('~^https://github\.com/([A-Za-z0-9-]{1,39})/([A-Za-z0-9._-]{1,100})(?:\.git)?/?$~D', $url, $m)) {
-            throw new RuntimeException('Only credential-free github.com HTTPS repository URLs are supported.');
+            throw new RuntimeException('Only public GitHub HTTPS repository URLs are supported.');
         }
-        // Avoid ambiguous path components and suffix tricks.
         $repo = preg_replace('/\.git$/', '', $m[2]);
         if ($repo === '' || $repo === '.' || $repo === '..' || str_starts_with($repo, '-')) {
             throw new RuntimeException('Invalid GitHub repository name.');
@@ -120,33 +138,45 @@ final class DeployWebsiteJob implements ShouldQueue
         return 'https://github.com/' . $m[1] . '/' . $repo . '.git';
     }
 
-    private function validateBranch(string $branch): string
+    private function branch(string $branch): string
     {
         if (strlen($branch) > 150 ||
             !preg_match('~^[A-Za-z0-9][A-Za-z0-9._/-]*$~D', $branch) ||
             str_contains($branch, '..') || str_contains($branch, '//') ||
-            str_contains($branch, '@{') || str_ends_with($branch, '.') ||
-            str_ends_with($branch, '/') || str_ends_with($branch, '.lock')) {
-            throw new RuntimeException('Invalid Git branch name.');
+            str_ends_with($branch, '/') || str_ends_with($branch, '.') ||
+            str_ends_with($branch, '.lock')) {
+            throw new RuntimeException('Invalid repository branch.');
         }
         return $branch;
+    }
+
+    private function domain(string $domain): string
+    {
+        $domain = strtolower(trim($domain));
+        if (strlen($domain) > 253 || !preg_match(
+                '/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/D',
+                $domain
+            )) {
+            throw new RuntimeException('A valid public domain is required.');
+        }
+        return $domain;
     }
 
     private function assertServerReady(string $serverId, int $ownerId): void
     {
         if (!Str::isUuid($serverId)) {
-            throw new RuntimeException('Invalid registered server identifier.');
+            throw new RuntimeException('Invalid registered server ID.');
         }
         $path = storage_path("app/private/zeitops/servers/{$serverId}/server.json");
         if (!File::isFile($path)) {
-            throw new RuntimeException('Server metadata is missing.');
+            throw new RuntimeException('Server metadata missing.');
         }
-        $data = json_decode(File::get($path), true, 512, JSON_THROW_ON_ERROR);
-        if (!is_array($data) || ($data['id'] ?? null) !== $serverId ||
-            (string) ($data['user_id'] ?? '') !== (string) $ownerId ||
-            ($data['status'] ?? null) !== 'connected' ||
-            ($data['provisioning_status'] ?? null) !== 'ready') {
-            throw new RuntimeException('Server ownership, SSH connection, or bootstrap status is invalid.');
+        $meta = json_decode(File::get($path), true, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($meta) || ($meta['id'] ?? null) !== $serverId ||
+            (string) ($meta['user_id'] ?? '') !== (string) $ownerId ||
+            ($meta['status'] ?? null) !== 'connected' ||
+            ($meta['provisioning_status'] ?? null) !== 'ready') {
+            throw new RuntimeException('Server identity, ownership or provisioning readiness invalid.');
         }
     }
 }
