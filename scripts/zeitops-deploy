@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# ZeitOps single-VPS Laravel deployment helper, initial trusted-VPS release.
+# ZeitOps single-VPS Laravel deployment helper (trusted VPS beta).
+# Usage: deploy <site-id> <domain> <github-https-repo.git> <branch> <40-char-commit>
 # Root-owned entry point. Everything from the repository runs as its OWN site user.
 set -Eeuo pipefail
 umask 077
@@ -39,10 +40,11 @@ DBNAME="zs_${SITE_ID}"
 DBUSER="zs_${SITE_ID}"
 STAGE="preflight"
 
-mkdir -p /etc/zeitops/sites
-chmod 700 /etc/zeitops /etc/zeitops/sites
+[[ ! -L /etc/zeitops && ! -L /etc/zeitops/sites ]] || fail 'Refusing symlinked configuration directories.'
+install -d -o root -g root -m 700 /etc/zeitops /etc/zeitops/sites
+[[ ! -L /srv/zeitops && ! -L /srv/zeitops/sites ]] || fail 'Refusing symlinked site parent directories.'
 install -d -o root -g root -m 711 /srv/zeitops /srv/zeitops/sites
-mkdir -p /var/log
+[[ ! -L "$LOGFILE" ]] || fail 'Refusing symlinked deploy log.'
 exec 3>>"$LOGFILE"
 chmod 600 "$LOGFILE"
 log() { printf '[%s] site=%s stage=%s %s\n' "$(date -Is)" "$SITE_ID" "$STAGE" "$*" >&3; }
@@ -56,20 +58,32 @@ flock -n 9 || fail 'Another release is already deploying on this VPS.'
 [[ -x /usr/bin/git && -x /usr/bin/php8.3 && -x /usr/bin/composer ]] || fail 'Install Git, PHP 8.3 and Composer first.'
 [[ -x /usr/sbin/apache2 && -d /etc/php/8.3/fpm/pool.d ]] || fail 'Apache or PHP-FPM 8.3 missing.'
 [[ -x /usr/bin/mysql ]] || fail 'MySQL client missing.'
-[[ ! -e "$SITE" || ! -L "$SITE" ]] || fail 'Refusing symlinked site directory.'
+[[ ! -L "$SITE" && ! -L "$SITE/releases" && ! -L "$SHARED" ]] || fail 'Refusing symlinked managed site paths.'
+for protected in "$POOL" "$VHOST" "/etc/zeitops/sites/${SITE_ID}.domain" "$LOGFILE"; do
+    [[ ! -L "$protected" ]] || fail 'Refusing symlinked administrator configuration or log.'
+done
 
 STAGE='site-user'
 if ! id "$USERNAME" >/dev/null 2>&1; then
     useradd --system --user-group --home-dir "$SITE" --shell /usr/sbin/nologin "$USERNAME"
 fi
 install -d -m 711 -o root -g root "$SITE" "$SITE/releases"
+[[ ! -L "$RELEASE" && ! -L "$SHARED/storage" && ! -L "$SHARED/.env" ]] || fail 'Symlinked release or shared path not allowed.'
+# The management account cannot write the root-owned releases parent.
 install -d -m 700 -o "$USERNAME" -g "$USERNAME" "$SHARED" "$SHARED/storage" "$SHARED/storage/app" "$SHARED/storage/app/public" "$SHARED/storage/framework" "$SHARED/storage/framework/cache" "$SHARED/storage/framework/sessions" "$SHARED/storage/framework/views" "$SHARED/storage/logs"
-chmod 711 "$SHARED" "$SHARED/storage" "$SHARED/storage/app"
-chmod 755 "$SHARED/storage/app/public"
+runuser -u "$USERNAME" -- chmod 711 "$SHARED" "$SHARED/storage" "$SHARED/storage/app"
+runuser -u "$USERNAME" -- chmod 755 "$SHARED/storage/app/public"
 [[ ! -e "$CURRENT" || -L "$CURRENT" ]] || fail 'Existing current path is not an expected release symlink.'
+if [[ -L "$CURRENT" ]]; then
+    CURRENT_TARGET="$(readlink "$CURRENT")"
+    [[ "$CURRENT_TARGET" =~ ^${SITE}/releases/[0-9a-f]{40}$ ]] || fail 'Invalid existing current release target.'
+fi
 install -d -m 700 -o "$USERNAME" -g "$USERNAME" "$RELEASE"
 # /srv/zeitops/sites/<id>/releases is root owned, so clone in a per-site owned
 # existing checkout directory with git init rather than allowing user to replace siblings.
+if [[ -e "$RELEASE/.git" && ( ! -d "$RELEASE/.git" || -L "$RELEASE/.git" ) ]]; then
+    fail 'Invalid existing Git directory.'
+fi
 if [[ ! -d "$RELEASE/.git" ]]; then
     runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARED" GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false \
       git -C "$RELEASE" init -q
@@ -78,29 +92,39 @@ if [[ ! -d "$RELEASE/.git" ]]; then
 fi
 
 STAGE='git-checkout'
+runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARED" \
+    git -C "$RELEASE" remote set-url origin "$REPO" >&3 2>&3
 runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARED" GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false \
     git -C "$RELEASE" -c credential.helper= fetch --no-tags --depth 1 origin "$BRANCH" >&3 2>&3
 runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARED" \
     git -C "$RELEASE" -c core.hooksPath=/dev/null checkout -q --detach "$COMMIT" >&3 2>&3
-[[ "$(git -C "$RELEASE" rev-parse HEAD)" == "$COMMIT" ]] || fail 'Checkout commit mismatch.'
-chmod 711 "$RELEASE"
-
-[[ -d "$RELEASE/public" && ! -L "$RELEASE/public" ]] \
-    || fail 'Invalid or symlinked public directory.'
-
-chmod 755 "$RELEASE/public"
-find "$RELEASE/public" -type d -exec chmod 755 {} +
-find "$RELEASE/public" -type f -exec chmod 644 {} +
-[[ -f "$RELEASE/artisan" && -f "$RELEASE/composer.json" && -d "$RELEASE/public" ]] || fail 'Repository is not a Laravel application.'
+[[ "$(runuser -u "$USERNAME" -- git -C "$RELEASE" rev-parse HEAD)" == "$COMMIT" ]] || fail 'Checkout commit mismatch.'
+# All paths below are repository-controlled: inspect them BEFORE acting on them.
+[[ -d "$RELEASE/public" && ! -L "$RELEASE/public" ]] || fail 'Invalid or symlinked public directory.'
+[[ -f "$RELEASE/artisan" && ! -L "$RELEASE/artisan" && -f "$RELEASE/composer.json" && ! -L "$RELEASE/composer.json" ]] || fail 'Repository is not a regular Laravel checkout.'
+[[ ! -L "$RELEASE/bootstrap" && ! -L "$RELEASE/bootstrap/cache" ]] || fail 'Invalid bootstrap/cache path.'
+# Existing release retries may already have our expected symlinks.
+if [[ -L "$RELEASE/.env" ]]; then
+    [[ "$(readlink "$RELEASE/.env")" == "$SHARED/.env" ]] || fail 'Unexpected release .env symlink.'
+fi
+if [[ -L "$RELEASE/storage" ]]; then
+    [[ "$(readlink "$RELEASE/storage")" == "$SHARED/storage" ]] || fail 'Unexpected release storage symlink.'
+fi
+# NEVER change permissions on repository-controlled paths as root.
+runuser -u "$USERNAME" -- chmod 711 "$RELEASE"
+runuser -u "$USERNAME" -- chmod 755 "$RELEASE/public"
+runuser -u "$USERNAME" -- find "$RELEASE/public" -type d -exec chmod 755 '{}' +
+runuser -u "$USERNAME" -- find "$RELEASE/public" -type f -exec chmod 644 '{}' +
 
 STAGE='database'
 # Reuse credentials and .env on redeploy; never rotate credentials implicitly.
 ENVFILE="$SHARED/.env"
+[[ ! -L "$ENVFILE" ]] || fail 'Refusing linked shared .env.'
 if [[ ! -f "$ENVFILE" ]]; then
     DBPASS="$(/usr/bin/openssl rand -hex 24)"
-    [[ -f "$RELEASE/.env.example" ]] && cp "$RELEASE/.env.example" "$ENVFILE" || : > "$ENVFILE"
-    chown "$USERNAME:$USERNAME" "$ENVFILE"
-    chmod 600 "$ENVFILE"
+    # Do not read or copy repository-provided .env.example as root.
+    runuser -u "$USERNAME" -- touch "$ENVFILE"
+    runuser -u "$USERNAME" -- chmod 600 "$ENVFILE"
     export ZO_APP_URL="https://${DOMAIN}" ZO_DB_NAME="$DBNAME" ZO_DB_USER="$DBUSER" ZO_DB_PASS="$DBPASS" ZO_ENVFILE="$ENVFILE"
     /usr/bin/php8.3 -r '
       $path=getenv("ZO_ENVFILE"); $s=file_get_contents($path);
@@ -121,12 +145,23 @@ SQL
 else
     [[ ! -L "$ENVFILE" ]] || fail 'Refusing linked shared .env.'
 fi
-ln -sfn "$ENVFILE" "$RELEASE/.env"
-chown -h "$USERNAME:$USERNAME" "$RELEASE/.env"
-# Keep framework data out of the immutable release.
-rm -rf "$RELEASE/storage"
-ln -s "$SHARED" "$RELEASE/storage"
-chown -h "$USERNAME:$USERNAME" "$RELEASE/storage"
+# Paths under a release are user-controlled: manipulate them as the site user.
+if [[ -L "$RELEASE/.env" ]]; then
+    [[ "$(readlink "$RELEASE/.env")" == "$ENVFILE" ]] || fail 'Unexpected release .env symlink.'
+elif [[ -e "$RELEASE/.env" ]]; then
+    fail 'Release contains a regular .env; refusing to overwrite it.'
+else
+    runuser -u "$USERNAME" -- ln -s "$ENVFILE" "$RELEASE/.env"
+fi
+# Keep framework data out of releases. Retry with an existing expected symlink.
+if [[ -L "$RELEASE/storage" ]]; then
+    [[ "$(readlink "$RELEASE/storage")" == "$SHARED/storage" ]] || fail 'Unexpected storage symlink.'
+else
+    if [[ -e "$RELEASE/storage" ]]; then
+        runuser -u "$USERNAME" -- rm -rf -- "$RELEASE/storage"
+    fi
+    runuser -u "$USERNAME" -- ln -s "$SHARED/storage" "$RELEASE/storage"
+fi
 install -d -m 700 -o "$USERNAME" -g "$USERNAME" "$RELEASE/bootstrap/cache"
 
 STAGE='composer'
@@ -151,8 +186,8 @@ if [[ -f "$RELEASE/package.json" && ! -d "$RELEASE/public/build" ]]; then
 fi
 
 # Make newly compiled public assets readable by Apache.
-find "$RELEASE/public" -type d -exec chmod 755 {} +
-find "$RELEASE/public" -type f -exec chmod 644 {} +
+runuser -u "$USERNAME" -- find "$RELEASE/public" -type d -exec chmod 755 '{}' +
+runuser -u "$USERNAME" -- find "$RELEASE/public" -type f -exec chmod 644 '{}' +
 
 STAGE='laravel-config'
 if ! grep -Eq '^APP_KEY=(base64:|[A-Za-z0-9])' "$ENVFILE"; then
@@ -163,6 +198,7 @@ runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARE
 # Migrations are deliberately NOT run automatically: they can destructively modify customer data.
 
 STAGE='php-fpm'
+[[ ! -L "$POOL" && ! -L "${POOL}.tmp" ]] || fail 'Refusing symlinked PHP-FPM configuration.'
 cat > "${POOL}.tmp" <<EOF
 [zeitops-${SITE_ID}]
 user = ${USERNAME}
@@ -204,6 +240,7 @@ cat > "${VHOST}.tmp" <<EOF
 </VirtualHost>
 EOF
 chown root:root "${VHOST}.tmp"; chmod 644 "${VHOST}.tmp"
+[[ ! -L "$VHOST" && ! -L "${VHOST}.bak" && ! -L "${VHOST}.tmp" ]] || fail 'Refusing linked Apache config path.'
 [[ ! -f "$VHOST" ]] || cp "$VHOST" "${VHOST}.bak"
 mv -f "${VHOST}.tmp" "$VHOST"
 a2ensite "zeitops-${SITE_ID}.conf" >&3 2>&3
@@ -215,14 +252,19 @@ fi
 STAGE='activate'
 PREVIOUS=""
 [[ ! -L "$CURRENT" ]] || PREVIOUS="$(readlink "$CURRENT")"
-ln -sfn "$RELEASE" "${CURRENT}.next"
+[[ ! -e "${CURRENT}.next" && ! -L "${CURRENT}.next" ]] || fail 'Stale current.next path.'
+ln -s "$RELEASE" "${CURRENT}.next"
 mv -Tf "${CURRENT}.next" "$CURRENT"
 # User is never allowed to replace the `current` symlink.
 chown -h root:root "$CURRENT"
 systemctl reload apache2 >&3 2>&3
 if ! curl --max-time 20 -sS -o /dev/null -H "Host: ${DOMAIN}" -w '%{http_code}' http://127.0.0.1/ | grep -Eq '^[23][0-9]{2}$'; then
    if [[ -n "$PREVIOUS" ]]; then
-       ln -sfn "$PREVIOUS" "${CURRENT}.next"; mv -Tf "${CURRENT}.next" "$CURRENT"; systemctl reload apache2 >&3 2>&3 || true
+       ln -s "$PREVIOUS" "${CURRENT}.next"; mv -Tf "${CURRENT}.next" "$CURRENT"; systemctl reload apache2 >&3 2>&3 || true
+   else
+       rm -f -- "$CURRENT"
+       a2dissite "zeitops-${SITE_ID}.conf" >&3 2>&3 || true
+       systemctl reload apache2 >&3 2>&3 || true
    fi
    fail 'Local HTTP health check failed; previous release restored when available.'
 fi
@@ -257,3 +299,4 @@ if [[ "$DNS_OK" == true ]] && command -v certbot >/dev/null 2>&1; then
 else
     log 'DNS not matched to VPS or certbot missing: deployed HTTP only'
 fi
+
