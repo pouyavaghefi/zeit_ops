@@ -98,8 +98,16 @@ runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARE
     git -C "$RELEASE" -c credential.helper= fetch --no-tags --depth 1 origin "$BRANCH" >&3 2>&3
 runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARED" \
     git -C "$RELEASE" -c core.hooksPath=/dev/null checkout -q --detach "$COMMIT" >&3 2>&3
-[[ "$(runuser -u "$USERNAME" -- git -C "$RELEASE" rev-parse HEAD)" == "$COMMIT" ]] || fail 'Checkout commit mismatch.'
-# All paths below are repository-controlled: inspect them BEFORE acting on them.
+ACTUAL_COMMIT="$(
+    runuser -u "$USERNAME" -- env -i \
+        PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+        HOME="$SHARED" \
+        git -C "$RELEASE" rev-parse HEAD
+)" || fail 'Unable to read checked-out commit.'
+
+[[ "$ACTUAL_COMMIT" == "$COMMIT" ]] \
+    || fail 'Checkout commit mismatch.'
+
 [[ -d "$RELEASE/public" && ! -L "$RELEASE/public" ]] || fail 'Invalid or symlinked public directory.'
 [[ -f "$RELEASE/artisan" && ! -L "$RELEASE/artisan" && -f "$RELEASE/composer.json" && ! -L "$RELEASE/composer.json" ]] || fail 'Repository is not a regular Laravel checkout.'
 [[ ! -L "$RELEASE/bootstrap" && ! -L "$RELEASE/bootstrap/cache" ]] || fail 'Invalid bootstrap/cache path.'
@@ -222,6 +230,7 @@ systemctl enable --now php8.3-fpm >&3 2>&3
 systemctl reload php8.3-fpm >&3 2>&3
 
 STAGE='apache'
+[[ ! -L "$VHOST" && ! -L "${VHOST}.bak" && ! -L "${VHOST}.tmp" ]] || fail 'Refusing linked Apache config path.'
 a2enmod rewrite proxy proxy_fcgi setenvif headers >&3 2>&3
 cat > "${VHOST}.tmp" <<EOF
 <VirtualHost *:80>
@@ -240,7 +249,6 @@ cat > "${VHOST}.tmp" <<EOF
 </VirtualHost>
 EOF
 chown root:root "${VHOST}.tmp"; chmod 644 "${VHOST}.tmp"
-[[ ! -L "$VHOST" && ! -L "${VHOST}.bak" && ! -L "${VHOST}.tmp" ]] || fail 'Refusing linked Apache config path.'
 [[ ! -f "$VHOST" ]] || cp "$VHOST" "${VHOST}.bak"
 mv -f "${VHOST}.tmp" "$VHOST"
 a2ensite "zeitops-${SITE_ID}.conf" >&3 2>&3
@@ -299,4 +307,3 @@ if [[ "$DNS_OK" == true ]] && command -v certbot >/dev/null 2>&1; then
 else
     log 'DNS not matched to VPS or certbot missing: deployed HTTP only'
 fi
-
