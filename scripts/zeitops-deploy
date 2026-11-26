@@ -48,7 +48,7 @@ install -d -o root -g root -m 711 /srv/zeitops /srv/zeitops/sites
 exec 3>>"$LOGFILE"
 chmod 600 "$LOGFILE"
 log() { printf '[%s] site=%s stage=%s %s\n' "$(date -Is)" "$SITE_ID" "$STAGE" "$*" >&3; }
-trap 'log "FAILED (exit=$?)"' ERR
+trap 'rc=$?; log "FAILED at line $LINENO (exit=$rc)"; exit "$rc"' ERR
 log 'deploy started'
 
 # Serialization on the remote host too (not only the queue middleware).
