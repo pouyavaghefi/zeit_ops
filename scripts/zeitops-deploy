@@ -85,6 +85,8 @@ runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARE
 [[ "$(git -C "$RELEASE" rev-parse HEAD)" == "$COMMIT" ]] || fail 'Checkout commit mismatch.'
 chmod 711 "$RELEASE"
 chmod 755 "$RELEASE/public"
+[[ -d "$RELEASE/public" && ! -L "$RELEASE/public" ]] \
+    || fail 'Invalid or symlinked public directory.'
 find "$RELEASE/public" -type d -exec chmod 755 {} +
 find "$RELEASE/public" -type f -exec chmod 644 {} +
 [[ -f "$RELEASE/artisan" && -f "$RELEASE/composer.json" && -d "$RELEASE/public" ]] || fail 'Repository is not a Laravel application.'
