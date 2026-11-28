@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+"""Root-owned fixed SSH-access helper; invoked only through approved sudo policy."""
+import base64
+import fcntl
+import hashlib
+import os
+import pathlib
+import pwd
+import re
+import sys
+import tempfile
+
+USER = 'zeitops-access'
+HOME = pathlib.Path('/home/zeitops-access')
+SSH_DIR = HOME / '.ssh'
+AUTHORIZED = SSH_DIR / 'authorized_keys'
+LOCK = pathlib.Path('/run/lock/zeitops-access-keys.lock')
+
+
+def fail(message):
+    print(message, file=sys.stderr)
+    sys.exit(1)
+
+
+def decode(blob):
+    if not re.fullmatch(r'[A-Za-z0-9+/]{68}', blob):
+        fail('Invalid public key encoding')
+    try:
+        data = base64.b64decode(blob, validate=True)
+    except ValueError:
+        fail('Invalid base64 public key')
+    if len(data) != 51 or data[:4] != b'\x00\x00\x00\x0b' or data[4:15] != b'ssh-ed25519' or data[15:19] != b'\x00\x00\x00\x20':
+        fail('Only valid Ed25519 public keys are supported')
+    fp = 'SHA256:' + base64.b64encode(hashlib.sha256(data).digest()).decode().rstrip('=')
+    return fp, base64.b64encode(data).decode()
+
+
+def main():
+    if os.geteuid() != 0:
+        fail('Must run as root')
+    if len(sys.argv) not in (3, 4) or sys.argv[1] not in ('add', 'remove'):
+        fail('Usage: access-keys add <fingerprint> <public-key-blob> | remove <fingerprint>')
+    action, fingerprint = sys.argv[1:3]
+    if action == 'add' and len(sys.argv) != 4 or action == 'remove' and len(sys.argv) != 3:
+        fail('Invalid argument count')
+    if not re.fullmatch(r'SHA256:[A-Za-z0-9+/]{43}', fingerprint):
+        fail('Invalid fingerprint')
+    if action == 'add':
+        actual, blob = decode(sys.argv[3])
+        if actual != fingerprint:
+            fail('Fingerprint mismatch')
+    account = pwd.getpwnam(USER)
+    # The access directory and keyfile remain root-owned so this shell user
+    # cannot self-authorize additional keys.
+    if SSH_DIR.is_symlink() or AUTHORIZED.is_symlink():
+        fail('Symlinked SSH path refused')
+    if not SSH_DIR.is_dir():
+        fail('Missing protected SSH directory; run the installer')
+    lockfd = os.open(LOCK, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(lockfd, 'r+'):
+        fcntl.flock(lockfd, fcntl.LOCK_EX)
+        content = AUTHORIZED.read_text() if AUTHORIZED.exists() else ''
+        lines = [ln for ln in content.splitlines() if ln.strip()]
+        suffix = 'zeitops-managed-' + hashlib.sha256(fingerprint.encode()).hexdigest()
+        lines = [ln for ln in lines if not ln.endswith(' ' + suffix)]
+        if action == 'add':
+            lines.append('ssh-ed25519 ' + blob + ' ' + suffix)
+        fd, tmp = tempfile.mkstemp(prefix='.authorized-keys-', dir=SSH_DIR)
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, 'w') as stream:
+                stream.write('\n'.join(lines) + ('\n' if lines else ''))
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(tmp, AUTHORIZED)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+        os.chown(AUTHORIZED, 0, 0)
+        os.chmod(AUTHORIZED, 0o600)
+        print('OK')
+
+if __name__ == '__main__':
+    main()
