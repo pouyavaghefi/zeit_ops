@@ -200,15 +200,8 @@
                     </li>
 
                     <li>
-                        <a href="{{ route('panel.uptime.index') }}"
-                           class="{{ request()->routeIs('panel.uptime.*') || request()->routeIs('panel.websites.uptime.*') ? 'active' : '' }}">
-                            <i class="fas fa-heartbeat"></i>
-                            Uptime Monitoring
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="#">
+                        <a href="{{ route('panel.uptime.select') }}"
+                           class="{{ request()->routeIs('panel.uptime.*', 'panel.websites.uptime.*') ? 'active' : '' }}">
                             <i class="fas fa-heartbeat"></i>
                             Uptime Monitoring
                         </a>

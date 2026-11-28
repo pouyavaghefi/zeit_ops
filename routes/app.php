@@ -1,6 +1,8 @@
+
 <?php
 
 use Illuminate\Support\Facades\Route;
+
 use App\Http\Controllers\Panel\DashboardController;
 use App\Http\Controllers\Panel\ServerController;
 use App\Http\Controllers\Panel\ActivityController;
@@ -10,245 +12,437 @@ use App\Http\Controllers\Panel\WebsiteDeploymentController;
 use App\Http\Controllers\Panel\WebsiteDomainController;
 use App\Http\Controllers\Panel\WebsiteDnsController;
 use App\Http\Controllers\Panel\WebsiteRedirectController;
+use App\Http\Controllers\Panel\WebsiteUptimeController;
 use App\Http\Controllers\Panel\ProfileSettingsController;
 use App\Http\Controllers\Panel\ServerBootstrapController;
-use App\Http\Controllers\Panel\WebsiteUptimeController;
 
+/*
+|--------------------------------------------------------------------------
+| Authenticated Panel Routes
+|--------------------------------------------------------------------------
+*/
 
+Route::prefix('panel')
+    ->name('panel.')
+    ->middleware(['auth'])
+    ->group(function () {
 
-Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () {
+        /*
+        |--------------------------------------------------------------------------
+        | Profile Settings
+        |--------------------------------------------------------------------------
+        */
 
-    Route::get('/profile-settings', [
-        ProfileSettingsController::class,
-        'index'
-    ])->name('profile-settings');
+        Route::get('/profile-settings', [
+            ProfileSettingsController::class,
+            'index'
+        ])->name('profile-settings');
 
-    Route::put('/profile-settings', [
-        ProfileSettingsController::class,
-        'update'
-    ])->name('profile-settings.update');
+        Route::put('/profile-settings', [
+            ProfileSettingsController::class,
+            'update'
+        ])->name('profile-settings.update');
 
-    Route::put('/profile-settings/password', [
-        ProfileSettingsController::class,
-        'updatePassword'
-    ])->name('profile-settings.password');
+        Route::put('/profile-settings/password', [
+            ProfileSettingsController::class,
+            'updatePassword'
+        ])->name('profile-settings.password');
 
-    Route::get('/dashboard', [DashboardController::class, 'showDashboard'])->name('dashboard');
+        /*
+        |--------------------------------------------------------------------------
+        | Dashboard & Notifications
+        |--------------------------------------------------------------------------
+        */
 
-    Route::get('/notifications', [ActivityController::class, 'index'])->name('notifications');
+        Route::get('/dashboard', [
+            DashboardController::class,
+            'showDashboard'
+        ])->name('dashboard');
 
-    Route::post('/notifications/mark-read', [ActivityController::class, 'markRead'])
-        ->name('notifications.markRead')
-        ->middleware('auth');
+        Route::get('/notifications', [
+            ActivityController::class,
+            'index'
+        ])->name('notifications');
 
+        Route::post('/notifications/mark-read', [
+            ActivityController::class,
+            'markRead'
+        ])->name('notifications.markRead');
 
-    Route::prefix('servers')
-        ->name('servers.')
-        ->group(function () {
+        /*
+        |--------------------------------------------------------------------------
+        | Server Management
+        |--------------------------------------------------------------------------
+        */
 
-            Route::get('/add', [
-                ServerController::class,
-                'add'
-            ])->name('add');
+        Route::prefix('servers')
+            ->name('servers.')
+            ->group(function () {
 
-            Route::post('/store', [
-                ServerController::class,
-                'store'
-            ])->name('store');
+                Route::get('/add', [
+                    ServerController::class,
+                    'add'
+                ])->name('add');
 
-            Route::get('/all', [
-                ServerController::class,
-                'all'
-            ])->name('all');
+                Route::post('/store', [
+                    ServerController::class,
+                    'store'
+                ])->name('store');
 
-            Route::get('/{serverId}/manage', [
-                ServerController::class,
-                'manage'
-            ])
-                ->whereUuid('serverId')
-                ->name('manage');
+                Route::get('/all', [
+                    ServerController::class,
+                    'all'
+                ])->name('all');
 
-            // Existing legacy route
-            Route::get('/check/{ip}', [
-                ServerController::class,
-                'check'
-            ])->name('check');
+                Route::get('/{serverId}/manage', [
+                    ServerController::class,
+                    'manage'
+                ])
+                    ->whereUuid('serverId')
+                    ->name('manage');
 
-            Route::post('/{serverId}/bootstrap', [
-                ServerBootstrapController::class,
-                'store'
-            ])
-                ->whereUuid('serverId')
-                ->middleware(['throttle:3,10'])
-                ->name('bootstrap');
+                // Legacy server connection check.
+                Route::get('/check/{ip}', [
+                    ServerController::class,
+                    'check'
+                ])->name('check');
 
-            Route::post('/{serverId}/bootstrap-key', [
-                ServerBootstrapController::class,
-                'generateKey'
-            ])
-                ->whereUuid('serverId')
-                ->middleware(['throttle:3,10'])
-                ->name('bootstrap-key.generate');
-        });
+                Route::post('/{serverId}/bootstrap', [
+                    ServerBootstrapController::class,
+                    'store'
+                ])
+                    ->whereUuid('serverId')
+                    ->middleware('throttle:3,10')
+                    ->name('bootstrap');
 
-
-    Route::get('/dns-records', [WebsiteDnsController::class, 'select'])->name('dns.select');
-    Route::get('/redirects', [WebsiteRedirectController::class, 'select'])->name('redirects.select');
-
-    // Uptime Monitoring dashboard
-    Route::get('/uptime', [WebsiteUptimeController::class, 'index'])
-        ->name('uptime.index');
-
-    // Website uptime details
-    Route::get('/websites/{website}/uptime', [WebsiteUptimeController::class, 'show'])
-        ->name('websites.uptime.show');
-
-    // Enable monitoring
-    Route::post('/websites/{website}/uptime', [WebsiteUptimeController::class, 'store'])
-        ->name('websites.uptime.store');
-
-    // Update monitoring settings
-    Route::patch('/websites/{website}/uptime', [WebsiteUptimeController::class, 'update'])
-        ->name('websites.uptime.update');
-
-    // Run an immediate health check
-    Route::post('/websites/{website}/uptime/check', [WebsiteUptimeController::class, 'check'])
-        ->name('websites.uptime.check');
-
-    // Pause monitoring
-    Route::delete('/websites/{website}/uptime', [WebsiteUptimeController::class, 'destroy'])
-        ->name('websites.uptime.destroy');
-
-    Route::prefix('websites')
-        ->name('websites.')
-        ->group(function () {
-
-            /*
-            |--------------------------------------------------------------------------
-            | Website Listing
-            |--------------------------------------------------------------------------
-            */
-
-            Route::get('/all', [
-                WebsiteController::class,
-                'all'
-            ])->name('all');
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | Website Setup Page
-            |--------------------------------------------------------------------------
-            */
-
-            Route::get('/{website}/setup', [
-                WebsiteController::class,
-                'setup'
-            ])
-                ->whereNumber('website')
-                ->name('setup');
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | Provisioning Status API
-            |--------------------------------------------------------------------------
-            |
-            | Available to authenticated website owners.
-            | Does not require an active membership.
-            |
-            */
-
-            Route::get('/{website}/provision/status', [
-                WebsiteProvisioningController::class,
-                'status'
-            ])
-                ->whereNumber('website')
-                ->name('provision.status');
-
-
-            // SSL and additional domain management (website owner only).
-            Route::get('/{website}/domains', [WebsiteDomainController::class, 'index'])
-                ->whereNumber('website')->name('domains.index');
-
-            Route::middleware(['active.membership'])->group(function () {
-                Route::post('/{website}/domains', [WebsiteDomainController::class, 'store'])
-                    ->whereNumber('website')->middleware('throttle:10,10')->name('domains.store');
-                Route::post('/{website}/domains/{domain}/verify', [WebsiteDomainController::class, 'verify'])
-                    ->whereNumber('website')->whereNumber('domain')->middleware('throttle:10,10')->name('domains.verify');
-                Route::post('/{website}/domains/{domain}/issue', [WebsiteDomainController::class, 'issue'])
-                    ->whereNumber('website')->whereNumber('domain')->middleware('throttle:4,10')->name('domains.issue');
-                Route::delete('/{website}/domains/{domain}', [WebsiteDomainController::class, 'destroy'])
-                    ->whereNumber('website')->whereNumber('domain')->middleware('throttle:4,10')->name('domains.destroy');
+                Route::post('/{serverId}/bootstrap-key', [
+                    ServerBootstrapController::class,
+                    'generateKey'
+                ])
+                    ->whereUuid('serverId')
+                    ->middleware('throttle:3,10')
+                    ->name('bootstrap-key.generate');
             });
 
-            // Live Cloudflare DNS records for a website and its registered aliases.
-            Route::get('/{website}/dns-records', [WebsiteDnsController::class, 'index'])
-                ->whereNumber('website')->name('dns.index');
-            Route::middleware(['active.membership'])->group(function () {
-                Route::post('/{website}/dns-records/zones', [WebsiteDnsController::class, 'connect'])
-                    ->whereNumber('website')->middleware('throttle:5,10')->name('dns.connect');
-                Route::delete('/{website}/dns-records/zones/{zone}', [WebsiteDnsController::class, 'disconnect'])
-                    ->whereNumber('website')->whereNumber('zone')->middleware('throttle:5,10')->name('dns.disconnect');
-                Route::post('/{website}/dns-records/zones/{zone}/records', [WebsiteDnsController::class, 'store'])
-                    ->whereNumber('website')->whereNumber('zone')->middleware('throttle:10,10')->name('dns.records.store');
-                Route::patch('/{website}/dns-records/zones/{zone}/records/{record}', [WebsiteDnsController::class, 'update'])
-                    ->whereNumber('website')->whereNumber('zone')->middleware('throttle:10,10')->name('dns.records.update');
-                Route::delete('/{website}/dns-records/zones/{zone}/records/{record}', [WebsiteDnsController::class, 'destroy'])
-                    ->whereNumber('website')->whereNumber('zone')->middleware('throttle:10,10')->name('dns.records.destroy');
+        /*
+        |--------------------------------------------------------------------------
+        | Global Website Management Pages
+        |--------------------------------------------------------------------------
+        */
+
+        // DNS Records website selection.
+        Route::get('/dns-records', [
+            WebsiteDnsController::class,
+            'select'
+        ])->name('dns.select');
+
+        // Redirects website selection.
+        Route::get('/redirects', [
+            WebsiteRedirectController::class,
+            'select'
+        ])->name('redirects.select');
+
+        // Uptime Monitoring website selection.
+        Route::get('/uptime', [
+            WebsiteUptimeController::class,
+            'select'
+        ])->name('uptime.select');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Website Management
+        |--------------------------------------------------------------------------
+        */
+
+        Route::prefix('websites')
+            ->name('websites.')
+            ->group(function () {
+
+                /*
+                |--------------------------------------------------------------------------
+                | Website Listing & Setup
+                |--------------------------------------------------------------------------
+                */
+
+                Route::get('/all', [
+                    WebsiteController::class,
+                    'all'
+                ])->name('all');
+
+                Route::get('/{website}/setup', [
+                    WebsiteController::class,
+                    'setup'
+                ])
+                    ->whereNumber('website')
+                    ->name('setup');
+
+                /*
+                |--------------------------------------------------------------------------
+                | Server Provisioning Status
+                |--------------------------------------------------------------------------
+                */
+
+                Route::get('/{website}/provision/status', [
+                    WebsiteProvisioningController::class,
+                    'status'
+                ])
+                    ->whereNumber('website')
+                    ->name('provision.status');
+
+                /*
+                |--------------------------------------------------------------------------
+                | SSL & Domains
+                |--------------------------------------------------------------------------
+                */
+
+                Route::get('/{website}/domains', [
+                    WebsiteDomainController::class,
+                    'index'
+                ])
+                    ->whereNumber('website')
+                    ->name('domains.index');
+
+                Route::middleware('active.membership')
+                    ->group(function () {
+
+                        Route::post('/{website}/domains', [
+                            WebsiteDomainController::class,
+                            'store'
+                        ])
+                            ->whereNumber('website')
+                            ->middleware('throttle:10,10')
+                            ->name('domains.store');
+
+                        Route::post('/{website}/domains/{domain}/verify', [
+                            WebsiteDomainController::class,
+                            'verify'
+                        ])
+                            ->whereNumber('website')
+                            ->whereNumber('domain')
+                            ->middleware('throttle:10,10')
+                            ->name('domains.verify');
+
+                        Route::post('/{website}/domains/{domain}/issue', [
+                            WebsiteDomainController::class,
+                            'issue'
+                        ])
+                            ->whereNumber('website')
+                            ->whereNumber('domain')
+                            ->middleware('throttle:4,10')
+                            ->name('domains.issue');
+
+                        Route::delete('/{website}/domains/{domain}', [
+                            WebsiteDomainController::class,
+                            'destroy'
+                        ])
+                            ->whereNumber('website')
+                            ->whereNumber('domain')
+                            ->middleware('throttle:4,10')
+                            ->name('domains.destroy');
+                    });
+
+                /*
+                |--------------------------------------------------------------------------
+                | DNS Records
+                |--------------------------------------------------------------------------
+                */
+
+                Route::get('/{website}/dns-records', [
+                    WebsiteDnsController::class,
+                    'index'
+                ])
+                    ->whereNumber('website')
+                    ->name('dns.index');
+
+                Route::middleware('active.membership')
+                    ->group(function () {
+
+                        Route::post('/{website}/dns-records/zones', [
+                            WebsiteDnsController::class,
+                            'connect'
+                        ])
+                            ->whereNumber('website')
+                            ->middleware('throttle:5,10')
+                            ->name('dns.connect');
+
+                        Route::delete('/{website}/dns-records/zones/{zone}', [
+                            WebsiteDnsController::class,
+                            'disconnect'
+                        ])
+                            ->whereNumber('website')
+                            ->whereNumber('zone')
+                            ->middleware('throttle:5,10')
+                            ->name('dns.disconnect');
+
+                        Route::post('/{website}/dns-records/zones/{zone}/records', [
+                            WebsiteDnsController::class,
+                            'store'
+                        ])
+                            ->whereNumber('website')
+                            ->whereNumber('zone')
+                            ->middleware('throttle:10,10')
+                            ->name('dns.records.store');
+
+                        Route::patch('/{website}/dns-records/zones/{zone}/records/{record}', [
+                            WebsiteDnsController::class,
+                            'update'
+                        ])
+                            ->whereNumber('website')
+                            ->whereNumber('zone')
+                            ->middleware('throttle:10,10')
+                            ->name('dns.records.update');
+
+                        Route::delete('/{website}/dns-records/zones/{zone}/records/{record}', [
+                            WebsiteDnsController::class,
+                            'destroy'
+                        ])
+                            ->whereNumber('website')
+                            ->whereNumber('zone')
+                            ->middleware('throttle:10,10')
+                            ->name('dns.records.destroy');
+                    });
+
+                /*
+                |--------------------------------------------------------------------------
+                | Redirects & Subdomains
+                |--------------------------------------------------------------------------
+                */
+
+                Route::get('/{website}/redirects', [
+                    WebsiteRedirectController::class,
+                    'index'
+                ])
+                    ->whereNumber('website')
+                    ->name('redirects.index');
+
+                Route::middleware('active.membership')
+                    ->group(function () {
+
+                        Route::post('/{website}/redirects', [
+                            WebsiteRedirectController::class,
+                            'store'
+                        ])
+                            ->whereNumber('website')
+                            ->middleware('throttle:6,10')
+                            ->name('redirects.store');
+
+                        Route::delete('/{website}/redirects/{redirect}', [
+                            WebsiteRedirectController::class,
+                            'destroy'
+                        ])
+                            ->whereNumber('website')
+                            ->whereNumber('redirect')
+                            ->middleware('throttle:6,10')
+                            ->name('redirects.destroy');
+                    });
+
+                /*
+                |--------------------------------------------------------------------------
+                | Uptime Monitoring
+                |--------------------------------------------------------------------------
+                |
+                | The global /panel/uptime route uses select().
+                | The website-specific dashboard uses index($request, $website).
+                |
+                */
+
+                Route::get('/{website}/uptime', [
+                    WebsiteUptimeController::class,
+                    'index'
+                ])
+                    ->whereNumber('website')
+                    ->name('uptime.index');
+
+                Route::middleware('active.membership')
+                    ->group(function () {
+
+                        // Enable monitoring.
+                        Route::post('/{website}/uptime', [
+                            WebsiteUptimeController::class,
+                            'enable'
+                        ])
+                            ->whereNumber('website')
+                            ->middleware('throttle:6,10')
+                            ->name('uptime.enable');
+
+                        // Update monitoring configuration.
+                        Route::patch('/{website}/uptime', [
+                            WebsiteUptimeController::class,
+                            'update'
+                        ])
+                            ->whereNumber('website')
+                            ->middleware('throttle:6,10')
+                            ->name('uptime.update');
+
+                        // Trigger an immediate uptime check.
+                        Route::post('/{website}/uptime/check', [
+                            WebsiteUptimeController::class,
+                            'check'
+                        ])
+                            ->whereNumber('website')
+                            ->middleware('throttle:6,10')
+                            ->name('uptime.check');
+
+                        // Disable or pause monitoring.
+                        Route::delete('/{website}/uptime', [
+                            WebsiteUptimeController::class,
+                            'disable'
+                        ])
+                            ->whereNumber('website')
+                            ->middleware('throttle:6,10')
+                            ->name('uptime.disable');
+                    });
+
+                /*
+                |--------------------------------------------------------------------------
+                | Deployment Status
+                |--------------------------------------------------------------------------
+                */
+
+                Route::get('/{website}/deploy/status', [
+                    WebsiteDeploymentController::class,
+                    'status'
+                ])
+                    ->whereNumber('website')
+                    ->name('deploy.status');
+
+                /*
+                |--------------------------------------------------------------------------
+                | Active Membership Required
+                |--------------------------------------------------------------------------
+                */
+
+                Route::middleware('active.membership')
+                    ->group(function () {
+
+                        // Create website form.
+                        Route::get('/create', [
+                            WebsiteController::class,
+                            'create'
+                        ])->name('create');
+
+                        // Register website.
+                        Route::post('/', [
+                            WebsiteController::class,
+                            'store'
+                        ])->name('store');
+
+                        // Start a deployment.
+                        Route::post('/{website}/deploy', [
+                            WebsiteDeploymentController::class,
+                            'start'
+                        ])
+                            ->whereNumber('website')
+                            ->middleware('throttle:6,10')
+                            ->name('deploy.start');
+
+                        // Start server provisioning.
+                        Route::post('/{website}/provision', [
+                            WebsiteProvisioningController::class,
+                            'start'
+                        ])
+                            ->whereNumber('website')
+                            ->name('provision.start');
+                    });
             });
-
-            // Redirect rules for a selected website; changes apply to connected Cloudflare zones.
-            Route::get('/{website}/redirects', [WebsiteRedirectController::class, 'index'])
-                ->whereNumber('website')->name('redirects.index');
-            Route::middleware(['active.membership'])->group(function () {
-                Route::post('/{website}/redirects', [WebsiteRedirectController::class, 'store'])
-                    ->whereNumber('website')->middleware('throttle:6,10')->name('redirects.store');
-                Route::delete('/{website}/redirects/{redirect}', [WebsiteRedirectController::class, 'destroy'])
-                    ->whereNumber('website')->whereNumber('redirect')->middleware('throttle:6,10')->name('redirects.destroy');
-            });
-
-            // The website owner can inspect deployment attempts.
-            Route::get('/{website}/deploy/status', [WebsiteDeploymentController::class, 'status'])
-                ->whereNumber('website')->name('deploy.status');
-
-            /*
-            |--------------------------------------------------------------------------
-            | Active Membership Required
-            |--------------------------------------------------------------------------
-            */
-
-            Route::middleware(['active.membership'])
-                ->group(function () {
-
-                    // Show Create Website Form
-                    Route::get('/create', [
-                        WebsiteController::class,
-                        'create'
-                    ])->name('create');
-
-
-                    // Save Website Configuration
-                    Route::post('/', [
-                        WebsiteController::class,
-                        'store'
-                    ])->name('store');
-
-
-                    // Explicit owner-controlled deployments. Never infer migration consent.
-                    Route::post('/{website}/deploy', [WebsiteDeploymentController::class, 'start'])
-                        ->whereNumber('website')->middleware('throttle:6,10')->name('deploy.start');
-
-                    // Start Server Provisioning
-                    Route::post('/{website}/provision', [
-                        WebsiteProvisioningController::class,
-                        'start'
-                    ])
-                        ->whereNumber('website')
-                        ->name('provision.start');
-
-                });
-
-        });
-
-});
+    });
