@@ -111,9 +111,10 @@
                     </li>
 
                     <li>
-                        <a href="#">
+                        <a href="{{ route('panel.servers.ssh-keys.select') }}"
+                           class="{{ request()->routeIs('panel.servers.ssh-keys.*') ? 'active' : '' }}">
                             <i class="fas fa-key"></i>
-                            SSH Keys & Access
+                            SSH Keys &amp; Access
                         </a>
                     </li>
 
