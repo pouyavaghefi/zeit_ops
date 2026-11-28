@@ -1338,6 +1338,80 @@
         </div>
     </div>
 
+    {{-- Release deployment controls: independent from server provisioning. --}}
+    @if($website->stack === 'lamp' && $website->framework === 'laravel')
+        <section id="zo-deploy-panel" style="max-width:1080px;margin:20px auto;padding:24px;border:1px solid #dfe6f3;border-radius:14px;background:white;color:#24354c">
+            <h2 style="font-size:21px;margin:0 0 8px">Website deployment</h2>
+            <p style="margin-bottom:18px">Deploy the configured GitHub branch to this server. Each attempt is recorded separately.</p>
+            <label style="display:flex;gap:10px;align-items:flex-start;margin-bottom:16px">
+                <input id="zo-deploy-migrate" type="checkbox" style="margin-top:5px">
+                <span><strong>Run Laravel database migrations</strong><small style="display:block;color:#697c97">Select for first-time Laravel setup when required tables are missing. Review migrations and back up existing data before selecting for production updates.</small></span>
+            </label>
+            <button id="zo-deploy-start" type="button" class="zo-provision-button" style="display:inline-block" @if(!$serverConnected) disabled @endif>Deploy website</button>
+            <p id="zo-deploy-state" role="status" aria-live="polite" style="margin:14px 0;color:#516782">Checking deployment history…</p>
+            <div id="zo-deploy-error" role="alert" style="color:#ab253c;margin:8px 0"></div>
+            <h3 style="font-size:15px;margin-top:18px">Recent deployments</h3>
+            <div id="zo-deploy-history" style="font-size:13px;color:#516782">No deployment history yet.</div>
+        </section>
+        <script>
+            (() => {
+                const start = document.getElementById('zo-deploy-start');
+                const state = document.getElementById('zo-deploy-state');
+                const history = document.getElementById('zo-deploy-history');
+                const error = document.getElementById('zo-deploy-error');
+                const migrate = document.getElementById('zo-deploy-migrate');
+                const statusUrl = @json(route('panel.websites.deploy.status', $website->id));
+                const startUrl = @json(route('panel.websites.deploy.start', $website->id));
+                let busy = false;
+                function row(run) {
+                    const line = document.createElement('div');
+                    line.style.cssText = 'padding:9px 0;border-bottom:1px solid #e8edf5';
+                    const text = `#${run.id} · ${run.status} · ${run.stage}${run.commit ? ' · '+run.commit.slice(0,8) : ''}${run.run_migrations ? ' · migrations' : ''}`;
+                    line.textContent = text;
+                    if (run.error) {
+                        const detail = document.createElement('div');
+                        detail.style.color = '#ab253c';
+                        detail.textContent = run.error;
+                        line.appendChild(detail);
+                    }
+                    return line;
+                }
+                async function refresh() {
+                    try {
+                        const res = await fetch(statusUrl, {credentials: 'same-origin', headers:{Accept:'application/json'}});
+                        if (!res.ok) throw new Error('Unable to fetch deployment status.');
+                        const data = await res.json();
+                        const latest = data.latest;
+                        busy = !!latest && ['queued','running'].includes(latest.status);
+                        start.disabled = busy || !@json($serverConnected);
+                        state.textContent = latest ? `Latest: ${latest.status} (${latest.stage})` : 'No deployment attempts yet.';
+                        history.replaceChildren();
+                        (data.history || []).forEach(item => history.appendChild(row(item)));
+                    } catch (e) { error.textContent = e.message; }
+                }
+                start.addEventListener('click', async () => {
+                    if (busy) return;
+                    if (migrate.checked && !confirm('Database migrations can change existing data. Have you reviewed the migrations and backed up your database?')) return;
+                    start.disabled = true;
+                    error.textContent = '';
+                    try {
+                        const res = await fetch(startUrl, {
+                            method:'POST', credentials:'same-origin',
+                            headers:{'Content-Type':'application/json',Accept:'application/json','X-CSRF-TOKEN':@json(csrf_token())},
+                            body: JSON.stringify({run_migrations:migrate.checked}),
+                        });
+                        const payload = await res.json();
+                        if (!res.ok) throw new Error(payload.message || 'Unable to queue deployment.');
+                        state.textContent = 'Deployment queued.';
+                        await refresh();
+                    } catch (e) { error.textContent = e.message; start.disabled = false; }
+                });
+                refresh();
+                setInterval(refresh, 6000);
+            })();
+        </script>
+    @endif
+
     <script>
         document.addEventListener('DOMContentLoaded', function () {
 

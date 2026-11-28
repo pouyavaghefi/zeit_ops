@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\Website;
+use App\Models\WebsiteDeployment;
 use App\Services\Provisioning\ServerSshService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -24,11 +25,11 @@ final class DeployWebsiteJob implements ShouldQueue
 
     private const HELPER = '/usr/local/libexec/zeitops/deploy';
 
-    public int $tries = 1;
+    public int $tries = 20;
     public int $timeout = 3600;
     public bool $failOnTimeout = true;
 
-    public function __construct(public int $websiteId)
+    public function __construct(public int $websiteId, public ?int $deploymentId = null)
     {
         $this->onQueue('deployments');
     }
@@ -46,6 +47,14 @@ final class DeployWebsiteJob implements ShouldQueue
     {
         $website = Website::findOrFail($this->websiteId);
         $serverId = (string) $website->server_id;
+        $run = $this->deploymentId ? WebsiteDeployment::where('website_id', $website->id)->findOrFail($this->deploymentId) : null;
+        if ($run && in_array($run->status, ['completed', 'failed'], true)) {
+            return;
+        }
+        if ($run) {
+            $run->update(['status' => 'running', 'stage' => 'validation', 'started_at' => now()]);
+        }
+        $previousStatus = (string) $website->status;
         $website->update(['status' => 'deploying']);
 
         try {
@@ -67,6 +76,7 @@ final class DeployWebsiteJob implements ShouldQueue
                 'branch' => $branch, 'domain' => $domain,
             ]);
 
+            $run?->update(['stage' => 'connecting']);
             $ssh = $servers->connect($serverId, (int) $website->user_id);
             if ($servers->execute($ssh, 'id -un', 30) !== 'zeitops') {
                 throw new RuntimeException('Remote SSH identity is not the ZeitOps management account.');
@@ -82,10 +92,11 @@ final class DeployWebsiteJob implements ShouldQueue
                 throw new RuntimeException('Repository branch did not resolve to an expected commit.');
             }
             $commit = $m[1];
+            $run?->update(['commit_sha' => $commit, 'stage' => 'deploying-on-vps']);
 
             // The root-owned helper rejects invalid args, never executes app code as root,
             // and uses an OS identity dedicated to this website.
-            $args = [(string) $website->id, $domain, $url, $branch, $commit];
+            $args = [(string) $website->id, $domain, $url, $branch, $commit, $run?->run_migrations ? 'run' : 'skip'];
             $command = 'sudo -n ' . self::HELPER . ' ' .
                 implode(' ', array_map('escapeshellarg', $args));
             $result = trim($servers->execute($ssh, $command, 3300));
@@ -100,13 +111,18 @@ final class DeployWebsiteJob implements ShouldQueue
                 'last_deployed_at' => now(),
             ]);
 
+            $run?->update(['status' => 'completed', 'stage' => $publicHttpsReady ? 'https-ready' : 'http-ready', 'finished_at' => now(), 'error' => null]);
+
             Log::channel('provisioning')->info('Website release deployed', [
                 'website_id' => $website->id, 'domain' => $domain,
                 'commit' => $commit, 'https_ready' => $publicHttpsReady,
                 'status' => $publicHttpsReady ? 'active' : 'deployed',
             ]);
         } catch (Throwable $e) {
-            $website->update(['status' => 'failed']);
+            // A failed redeploy can restore an existing healthy release on the VPS.
+            // Preserve its last known panel status; mark the attempt failed separately.
+            $website->update(['status' => in_array($previousStatus, ['active', 'deployed'], true) ? $previousStatus : 'failed']);
+            $run?->update(['status' => 'failed', 'stage' => 'failed', 'error' => $e instanceof RuntimeException ? $this->safeError($e->getMessage()) : 'Unexpected deployment failure. Check the VPS deployment log.', 'finished_at' => now()]);
             Log::channel('provisioning')->error('Website deployment failed', [
                 'website_id' => $website->id, 'server_id' => $serverId,
                 'error_class' => get_class($e),
@@ -117,9 +133,19 @@ final class DeployWebsiteJob implements ShouldQueue
         }
     }
 
+    private function safeError(string $message): string
+    {
+        return mb_substr(preg_replace('/[\r\n]+/', ' ', $message), 0, 350);
+    }
+
     public function failed(?Throwable $exception): void
     {
         $website = Website::find($this->websiteId);
+        if ($this->deploymentId) {
+            WebsiteDeployment::whereKey($this->deploymentId)->whereIn('status', ['queued', 'running'])->update([
+                'status' => 'failed', 'stage' => 'failed', 'error' => 'Deployment worker failed or timed out.', 'finished_at' => now(),
+            ]);
+        }
         if ($website && $website->status === 'deploying') {
             $website->update(['status' => 'failed']);
         }

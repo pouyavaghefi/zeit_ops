@@ -1,4 +1,3 @@
-
 @extends('panel.layouts.master')
 
 @section('wrapper')
@@ -18,6 +17,7 @@
             'provisioning' => 'Provisioning',
             'deploying' => 'Deploying',
             'active' => 'Active',
+            'deployed' => 'Deployed (HTTP)',
             'failed' => 'Failed',
             'suspended' => 'Suspended',
         ];
@@ -27,6 +27,7 @@
             'provisioning' => 'fa-cogs',
             'deploying' => 'fa-cloud-upload-alt',
             'active' => 'fa-check-circle',
+            'deployed' => 'fa-cloud',
             'failed' => 'fa-exclamation-circle',
             'suspended' => 'fa-pause-circle',
         ];

@@ -28,4 +28,4 @@ apt-get install -y --no-install-recommends certbot python3-certbot-apache openss
 
 echo 'ZeitOps deployment helper installed.'
 echo 'Run: sudo -u zeitops sudo -n /usr/local/libexec/zeitops/deploy'
-echo 'Expected without args: ZEITOPS_ERROR: Expected site-id domain repo branch commit.'
+echo 'Expected without args: ZEITOPS_ERROR: Expected site-id domain repo branch commit migration-policy.'

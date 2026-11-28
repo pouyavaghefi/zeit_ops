@@ -25,6 +25,11 @@ class Website extends Model
         'last_deployed_at' => 'datetime',
     ];
 
+    public function deployments()
+    {
+        return $this->hasMany(WebsiteDeployment::class);
+    }
+
     public function user()
     {
         return $this->belongsTo(User::class);

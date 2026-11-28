@@ -6,6 +6,7 @@ use App\Http\Controllers\Panel\ServerController;
 use App\Http\Controllers\Panel\ActivityController;
 use App\Http\Controllers\Panel\WebsiteController;
 use App\Http\Controllers\Panel\WebsiteProvisioningController;
+use App\Http\Controllers\Panel\WebsiteDeploymentController;
 use App\Http\Controllers\Panel\ProfileSettingsController;
 use App\Http\Controllers\Panel\ServerBootstrapController;
 
@@ -134,6 +135,10 @@ Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () 
                 ->name('provision.status');
 
 
+            // The website owner can inspect deployment attempts.
+            Route::get('/{website}/deploy/status', [WebsiteDeploymentController::class, 'status'])
+                ->whereNumber('website')->name('deploy.status');
+
             /*
             |--------------------------------------------------------------------------
             | Active Membership Required
@@ -156,6 +161,10 @@ Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () 
                         'store'
                     ])->name('store');
 
+
+                    // Explicit owner-controlled deployments. Never infer migration consent.
+                    Route::post('/{website}/deploy', [WebsiteDeploymentController::class, 'start'])
+                        ->whereNumber('website')->middleware('throttle:6,10')->name('deploy.start');
 
                     // Start Server Provisioning
                     Route::post('/{website}/provision', [

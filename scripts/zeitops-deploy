@@ -12,8 +12,9 @@ export COMPOSER_NO_INTERACTION=1
 
 fail() { printf 'ZEITOPS_ERROR: %s\n' "$*" >&2; exit 1; }
 [[ "$(id -u)" == 0 ]] || fail 'Requires root through the approved sudoers rule.'
-[[ "$#" == 5 ]] || fail 'Expected site-id domain repo branch commit.'
-SITE_ID="$1" DOMAIN="$2" REPO="$3" BRANCH="$4" COMMIT="$5"
+[[ "$#" == 6 ]] || fail 'Expected site-id domain repo branch commit migration-policy.'
+SITE_ID="$1" DOMAIN="$2" REPO="$3" BRANCH="$4" COMMIT="$5" MIGRATION_POLICY="$6"
+[[ "$MIGRATION_POLICY" == "run" || "$MIGRATION_POLICY" == "skip" ]] || fail 'Invalid migration policy.'
 [[ "$SITE_ID" =~ ^[1-9][0-9]{0,8}$ ]] || fail 'Invalid site ID.'
 [[ ${#DOMAIN} -le 253 && "$DOMAIN" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] || fail 'Invalid domain.'
 [[ "$REPO" =~ ^https://github\.com/[a-zA-Z0-9-]{1,39}/[a-zA-Z0-9._-]{1,100}\.git$ ]] || fail 'Unsupported repository.'
@@ -50,6 +51,9 @@ chmod 600 "$LOGFILE"
 log() { printf '[%s] site=%s stage=%s %s\n' "$(date -Is)" "$SITE_ID" "$STAGE" "$*" >&3; }
 trap 'rc=$?; log "FAILED at line $LINENO (exit=$rc)"; exit "$rc"' ERR
 log 'deploy started'
+# GNU find may fail to restore a privileged caller working directory after runuser.
+cd /
+log 'safe working directory selected'
 
 # Serialization on the remote host too (not only the queue middleware).
 exec 9>"/run/lock/zeitops-site-${SITE_ID}.lock"
@@ -130,17 +134,18 @@ ENVFILE="$SHARED/.env"
 [[ ! -L "$ENVFILE" ]] || fail 'Refusing linked shared .env.'
 if [[ ! -f "$ENVFILE" ]]; then
     DBPASS="$(/usr/bin/openssl rand -hex 24)"
+    APPKEY="base64:$(/usr/bin/openssl rand -base64 32 | tr -d '\n')"
     # Do not read or copy repository-provided .env.example as root.
     runuser -u "$USERNAME" -- touch "$ENVFILE"
     runuser -u "$USERNAME" -- chmod 600 "$ENVFILE"
-    export ZO_APP_URL="https://${DOMAIN}" ZO_DB_NAME="$DBNAME" ZO_DB_USER="$DBUSER" ZO_DB_PASS="$DBPASS" ZO_ENVFILE="$ENVFILE"
+    export ZO_APP_URL="https://${DOMAIN}" ZO_DB_NAME="$DBNAME" ZO_DB_USER="$DBUSER" ZO_DB_PASS="$DBPASS" ZO_ENVFILE="$ENVFILE" ZO_APP_KEY="$APPKEY" ZO_APP_NAME="${DOMAIN}"
     /usr/bin/php8.3 -r '
       $path=getenv("ZO_ENVFILE"); $s=file_get_contents($path);
-      $vars=["APP_ENV"=>"production","APP_DEBUG"=>"false","APP_URL"=>getenv("ZO_APP_URL"),"DB_CONNECTION"=>"mysql","DB_HOST"=>"127.0.0.1","DB_PORT"=>"3306","DB_DATABASE"=>getenv("ZO_DB_NAME"),"DB_USERNAME"=>getenv("ZO_DB_USER"),"DB_PASSWORD"=>getenv("ZO_DB_PASS")];
+       $vars=["APP_NAME"=>getenv("ZO_APP_NAME"),"APP_KEY"=>getenv("ZO_APP_KEY"),"APP_ENV"=>"production","APP_DEBUG"=>"false","APP_URL"=>getenv("ZO_APP_URL"),"DB_CONNECTION"=>"mysql","DB_HOST"=>"127.0.0.1","DB_PORT"=>"3306","DB_DATABASE"=>getenv("ZO_DB_NAME"),"DB_USERNAME"=>getenv("ZO_DB_USER"),"DB_PASSWORD"=>getenv("ZO_DB_PASS")];
       foreach($vars as $k=>$v){$line=$k."=".$v; $pattern="/^\\s*#?\\s*".preg_quote($k,"/")."=.*$/m"; $s=preg_match($pattern,$s)?preg_replace($pattern,$line,$s):rtrim($s)."\n".$line."\n";}
       if(file_put_contents($path,$s)===false)exit(1);
     '
-    unset ZO_APP_URL ZO_DB_NAME ZO_DB_USER ZO_DB_PASS ZO_ENVFILE
+    unset ZO_APP_URL ZO_DB_NAME ZO_DB_USER ZO_DB_PASS ZO_ENVFILE ZO_APP_KEY ZO_APP_NAME APPKEY
     # All variable values are either numeric or cryptographically generated hex.
     /usr/bin/mysql --batch --skip-column-names <<SQL
 CREATE DATABASE IF NOT EXISTS \`$DBNAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -198,12 +203,24 @@ runuser -u "$USERNAME" -- find "$RELEASE/public" -type d -exec chmod 755 '{}' +
 runuser -u "$USERNAME" -- find "$RELEASE/public" -type f -exec chmod 644 '{}' +
 
 STAGE='laravel-config'
-if ! grep -Eq '^APP_KEY=(base64:|[A-Za-z0-9])' "$ENVFILE"; then
-   runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARED" /usr/bin/php8.3 "$RELEASE/artisan" key:generate --force --no-interaction >&3 2>&3
+# Preserve any existing key. A missing key on redeploy is a configuration error,
+# never silently rotate customer encryption keys.
+if ! grep -Eq '^APP_KEY=base64:[A-Za-z0-9+/]{43}=' "$ENVFILE"; then
+    fail 'APP_KEY missing or invalid; configure the existing shared .env safely.'
 fi
 runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARED" /usr/bin/php8.3 "$RELEASE/artisan" storage:link --no-interaction >&3 2>&3 || true
 runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARED" /usr/bin/php8.3 "$RELEASE/artisan" config:cache --no-interaction >&3 2>&3
-# Migrations are deliberately NOT run automatically: they can destructively modify customer data.
+# Database migrations only run after an explicit panel choice. Do not silently
+# change the schema on routine deploys. Laravel's migrate command is idempotent.
+STAGE='migrations'
+if [[ "$MIGRATION_POLICY" == 'run' ]]; then
+    log 'database migrations requested by website owner'
+    runuser -u "$USERNAME" -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$SHARED" \
+        /usr/bin/php8.3 "$RELEASE/artisan" migrate --force --no-interaction >&3 2>&3
+    log 'database migrations completed'
+else
+    log 'database migrations skipped by website owner'
+fi
 
 STAGE='php-fpm'
 [[ ! -L "$POOL" && ! -L "${POOL}.tmp" ]] || fail 'Refusing symlinked PHP-FPM configuration.'
@@ -266,7 +283,9 @@ mv -Tf "${CURRENT}.next" "$CURRENT"
 # User is never allowed to replace the `current` symlink.
 chown -h root:root "$CURRENT"
 systemctl reload apache2 >&3 2>&3
-if ! curl --max-time 20 -sS -o /dev/null -H "Host: ${DOMAIN}" -w '%{http_code}' http://127.0.0.1/ | grep -Eq '^[23][0-9]{2}$'; then
+HTTP_CODE="$(curl --max-time 20 -sS -o /dev/null -H "Host: ${DOMAIN}" -w '%{http_code}' http://127.0.0.1/ 2>&3 || true)"
+if [[ ! "$HTTP_CODE" =~ ^[23][0-9]{2}$ ]]; then
+   log "local HTTP health check failed (HTTP ${HTTP_CODE:-unknown})"
    if [[ -n "$PREVIOUS" ]]; then
        ln -s "$PREVIOUS" "${CURRENT}.next"; mv -Tf "${CURRENT}.next" "$CURRENT"; systemctl reload apache2 >&3 2>&3 || true
    else
@@ -278,7 +297,7 @@ if ! curl --max-time 20 -sS -o /dev/null -H "Host: ${DOMAIN}" -w '%{http_code}' 
 fi
 printf '%s\n' "$DOMAIN" > "/etc/zeitops/sites/${SITE_ID}.domain"
 chmod 600 "/etc/zeitops/sites/${SITE_ID}.domain"
-log "release $COMMIT activated"
+log "release $COMMIT activated (HTTP ${HTTP_CODE})"
 printf 'ZEITOPS_RELEASE_READY\n'
 
 # HTTPS is conditional on public DNS resolving to an IP actually assigned to this VPS.
