@@ -193,7 +193,7 @@
                     </li>
 
                     <li>
-                        <a href="#">
+                        <a href="{{ route('panel.dns.select') }}" class="{{ request()->routeIs('panel.dns.*', 'panel.websites.dns.*') ? 'active' : '' }}">
                             <i class="fas fa-network-wired"></i>
                             DNS Records
                         </a>
