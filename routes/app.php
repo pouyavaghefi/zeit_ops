@@ -8,6 +8,7 @@ use App\Http\Controllers\Panel\WebsiteController;
 use App\Http\Controllers\Panel\WebsiteProvisioningController;
 use App\Http\Controllers\Panel\WebsiteDeploymentController;
 use App\Http\Controllers\Panel\WebsiteDomainController;
+use App\Http\Controllers\Panel\WebsiteDnsController;
 use App\Http\Controllers\Panel\ProfileSettingsController;
 use App\Http\Controllers\Panel\ServerBootstrapController;
 
@@ -88,6 +89,8 @@ Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () 
         });
 
 
+    Route::get('/dns-records', [WebsiteDnsController::class, 'select'])->name('dns.select');
+
     Route::prefix('websites')
         ->name('websites.')
         ->group(function () {
@@ -149,6 +152,22 @@ Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () 
                     ->whereNumber('website')->whereNumber('domain')->middleware('throttle:4,10')->name('domains.issue');
                 Route::delete('/{website}/domains/{domain}', [WebsiteDomainController::class, 'destroy'])
                     ->whereNumber('website')->whereNumber('domain')->middleware('throttle:4,10')->name('domains.destroy');
+            });
+
+            // Live Cloudflare DNS records for a website and its registered aliases.
+            Route::get('/{website}/dns-records', [WebsiteDnsController::class, 'index'])
+                ->whereNumber('website')->name('dns.index');
+            Route::middleware(['active.membership'])->group(function () {
+                Route::post('/{website}/dns-records/zones', [WebsiteDnsController::class, 'connect'])
+                    ->whereNumber('website')->middleware('throttle:5,10')->name('dns.connect');
+                Route::delete('/{website}/dns-records/zones/{zone}', [WebsiteDnsController::class, 'disconnect'])
+                    ->whereNumber('website')->whereNumber('zone')->middleware('throttle:5,10')->name('dns.disconnect');
+                Route::post('/{website}/dns-records/zones/{zone}/records', [WebsiteDnsController::class, 'store'])
+                    ->whereNumber('website')->whereNumber('zone')->middleware('throttle:10,10')->name('dns.records.store');
+                Route::patch('/{website}/dns-records/zones/{zone}/records/{record}', [WebsiteDnsController::class, 'update'])
+                    ->whereNumber('website')->whereNumber('zone')->middleware('throttle:10,10')->name('dns.records.update');
+                Route::delete('/{website}/dns-records/zones/{zone}/records/{record}', [WebsiteDnsController::class, 'destroy'])
+                    ->whereNumber('website')->whereNumber('zone')->middleware('throttle:10,10')->name('dns.records.destroy');
             });
 
             // The website owner can inspect deployment attempts.
