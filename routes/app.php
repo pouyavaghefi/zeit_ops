@@ -1,4 +1,3 @@
-
 <?php
 
 use Illuminate\Support\Facades\Route;
@@ -151,6 +150,51 @@ Route::prefix('panel')
 
         /*
         |--------------------------------------------------------------------------
+        | SSH Keys & Access
+        |--------------------------------------------------------------------------
+        */
+
+        // Select a registered server
+        Route::get('/ssh-keys', [
+            ServerAccessKeyController::class,
+            'select'
+        ])->name('servers.ssh-keys.select');
+
+        // Manage SSH keys for a server
+        Route::get('/servers/{serverId}/ssh-keys', [
+            ServerAccessKeyController::class,
+            'index'
+        ])
+            ->whereUuid('serverId')
+            ->name('servers.ssh-keys.index');
+
+        // Actions require an active membership
+        Route::middleware(['active.membership'])->group(function () {
+
+            // Add a public SSH key
+            Route::post('/servers/{serverId}/ssh-keys', [
+                ServerAccessKeyController::class,
+                'store'
+            ])
+                ->whereUuid('serverId')
+                ->middleware('throttle:5,10')
+                ->name('servers.ssh-keys.store');
+
+            // Revoke an SSH key
+            Route::delete('/servers/{serverId}/ssh-keys/{key}', [
+                ServerAccessKeyController::class,
+                'destroy'
+            ])
+                ->whereUuid('serverId')
+                ->whereNumber('key')
+                ->middleware('throttle:5,10')
+                ->name('servers.ssh-keys.destroy');
+
+        });
+
+
+        /*
+        |--------------------------------------------------------------------------
         | Website Management
         |--------------------------------------------------------------------------
         */
@@ -242,50 +286,6 @@ Route::prefix('panel')
                             ->name('domains.destroy');
                     });
 
-
-                /*
-                |--------------------------------------------------------------------------
-                | SSH Keys & Access
-                |--------------------------------------------------------------------------
-                */
-
-// Select a registered server
-                Route::get('/ssh-keys', [
-                    ServerAccessKeyController::class,
-                    'select'
-                ])->name('servers.ssh-keys.select');
-
-// Manage SSH keys for a server
-                Route::get('/servers/{serverId}/ssh-keys', [
-                    ServerAccessKeyController::class,
-                    'index'
-                ])
-                    ->whereUuid('serverId')
-                    ->name('servers.ssh-keys.index');
-
-// Actions require an active membership
-                Route::middleware(['active.membership'])->group(function () {
-
-                    // Add a public SSH key
-                    Route::post('/servers/{serverId}/ssh-keys', [
-                        ServerAccessKeyController::class,
-                        'store'
-                    ])
-                        ->whereUuid('serverId')
-                        ->middleware('throttle:5,10')
-                        ->name('servers.ssh-keys.store');
-
-                    // Revoke an SSH key
-                    Route::delete('/servers/{serverId}/ssh-keys/{key}', [
-                        ServerAccessKeyController::class,
-                        'destroy'
-                    ])
-                        ->whereUuid('serverId')
-                        ->whereNumber('key')
-                        ->middleware('throttle:5,10')
-                        ->name('servers.ssh-keys.destroy');
-
-                });
 
                 /*
                 |--------------------------------------------------------------------------
@@ -492,3 +492,4 @@ Route::prefix('panel')
                     });
             });
     });
+
