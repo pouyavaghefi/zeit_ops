@@ -12,6 +12,8 @@ use App\Http\Controllers\Panel\WebsiteDnsController;
 use App\Http\Controllers\Panel\WebsiteRedirectController;
 use App\Http\Controllers\Panel\ProfileSettingsController;
 use App\Http\Controllers\Panel\ServerBootstrapController;
+use App\Http\Controllers\Panel\WebsiteUptimeController;
+
 
 
 Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () {
@@ -92,6 +94,30 @@ Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () 
 
     Route::get('/dns-records', [WebsiteDnsController::class, 'select'])->name('dns.select');
     Route::get('/redirects', [WebsiteRedirectController::class, 'select'])->name('redirects.select');
+
+    // Uptime Monitoring dashboard
+    Route::get('/uptime', [WebsiteUptimeController::class, 'index'])
+        ->name('uptime.index');
+
+    // Website uptime details
+    Route::get('/websites/{website}/uptime', [WebsiteUptimeController::class, 'show'])
+        ->name('websites.uptime.show');
+
+    // Enable monitoring
+    Route::post('/websites/{website}/uptime', [WebsiteUptimeController::class, 'store'])
+        ->name('websites.uptime.store');
+
+    // Update monitoring settings
+    Route::patch('/websites/{website}/uptime', [WebsiteUptimeController::class, 'update'])
+        ->name('websites.uptime.update');
+
+    // Run an immediate health check
+    Route::post('/websites/{website}/uptime/check', [WebsiteUptimeController::class, 'check'])
+        ->name('websites.uptime.check');
+
+    // Pause monitoring
+    Route::delete('/websites/{website}/uptime', [WebsiteUptimeController::class, 'destroy'])
+        ->name('websites.uptime.destroy');
 
     Route::prefix('websites')
         ->name('websites.')
