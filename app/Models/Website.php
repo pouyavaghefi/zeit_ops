@@ -25,6 +25,11 @@ class Website extends Model
         'last_deployed_at' => 'datetime',
     ];
 
+    public function domains()
+    {
+        return $this->hasMany(WebsiteDomain::class);
+    }
+
     public function deployments()
     {
         return $this->hasMany(WebsiteDeployment::class);

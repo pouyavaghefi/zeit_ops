@@ -7,6 +7,7 @@ use App\Http\Controllers\Panel\ActivityController;
 use App\Http\Controllers\Panel\WebsiteController;
 use App\Http\Controllers\Panel\WebsiteProvisioningController;
 use App\Http\Controllers\Panel\WebsiteDeploymentController;
+use App\Http\Controllers\Panel\WebsiteDomainController;
 use App\Http\Controllers\Panel\ProfileSettingsController;
 use App\Http\Controllers\Panel\ServerBootstrapController;
 
@@ -134,6 +135,21 @@ Route::prefix('panel')->name('panel.')->middleware(['auth'])->group(function () 
                 ->whereNumber('website')
                 ->name('provision.status');
 
+
+            // SSL and additional domain management (website owner only).
+            Route::get('/{website}/domains', [WebsiteDomainController::class, 'index'])
+                ->whereNumber('website')->name('domains.index');
+
+            Route::middleware(['active.membership'])->group(function () {
+                Route::post('/{website}/domains', [WebsiteDomainController::class, 'store'])
+                    ->whereNumber('website')->middleware('throttle:10,10')->name('domains.store');
+                Route::post('/{website}/domains/{domain}/verify', [WebsiteDomainController::class, 'verify'])
+                    ->whereNumber('website')->whereNumber('domain')->middleware('throttle:10,10')->name('domains.verify');
+                Route::post('/{website}/domains/{domain}/issue', [WebsiteDomainController::class, 'issue'])
+                    ->whereNumber('website')->whereNumber('domain')->middleware('throttle:4,10')->name('domains.issue');
+                Route::delete('/{website}/domains/{domain}', [WebsiteDomainController::class, 'destroy'])
+                    ->whereNumber('website')->whereNumber('domain')->middleware('throttle:4,10')->name('domains.destroy');
+            });
 
             // The website owner can inspect deployment attempts.
             Route::get('/{website}/deploy/status', [WebsiteDeploymentController::class, 'status'])

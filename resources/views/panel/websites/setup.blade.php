@@ -1342,6 +1342,7 @@
     @if($website->stack === 'lamp' && $website->framework === 'laravel')
         <section id="zo-deploy-panel" style="max-width:1080px;margin:20px auto;padding:24px;border:1px solid #dfe6f3;border-radius:14px;background:white;color:#24354c">
             <h2 style="font-size:21px;margin:0 0 8px">Website deployment</h2>
+            <p><a href="{{ route('panel.websites.domains.index', $website->id) }}" style="font-weight:700;color:#2563eb">🔒 Manage SSL &amp; Domains</a></p>
             <p style="margin-bottom:18px">Deploy the configured GitHub branch to this server. Each attempt is recorded separately.</p>
             <label style="display:flex;gap:10px;align-items:flex-start;margin-bottom:16px">
                 <input id="zo-deploy-migrate" type="checkbox" style="margin-top:5px">
