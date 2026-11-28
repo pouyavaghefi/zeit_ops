@@ -200,7 +200,7 @@
                     </li>
 
                     <li>
-                        <a href="#">
+                        <a href="{{ route('panel.redirects.select') }}" class="{{ request()->routeIs('panel.redirects.*', 'panel.websites.redirects.*') ? 'active' : '' }}">
                             <i class="fas fa-random"></i>
                             Redirects & Subdomains
                         </a>
