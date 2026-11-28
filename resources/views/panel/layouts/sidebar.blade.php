@@ -185,7 +185,8 @@
                     </li>
 
                     <li>
-                        <a href="#">
+                        <a href="{{ route('panel.websites.domains.index', ['website' => 1]) }}"
+                           class="{{ request()->routeIs('panel.websites.domains.*') ? 'active' : '' }}">
                             <i class="fas fa-lock"></i>
                             SSL & Domains
                         </a>
